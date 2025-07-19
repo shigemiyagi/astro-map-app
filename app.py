@@ -5,9 +5,17 @@ import plotly.graph_objects as go
 import re
 from collections import defaultdict
 import datetime
-import swisseph as swe # 変更点
+import swisseph as swe
 
 # --- 定数とデータ ---
+
+# 星座の開始度数（黄経）
+ZODIAC_OFFSETS = {
+    "牡羊座": 0, "ARIES": 0, "牡牛座": 30, "TAURUS": 30, "双子座": 60, "GEMINI": 60,
+    "蟹座": 90, "CANCER": 90, "獅子座": 120, "LEO": 120, "乙女座": 150, "VIRGO": 150,
+    "天秤座": 180, "LIBRA": 180, "蠍座": 210, "SCORPIO": 210, "射手座": 240, "SAGITTARIUS": 240,
+    "山羊座": 270, "CAPRICORN": 270, "水瓶座": 300, "AQUARIUS": 300, "魚座": 330, "PISCES": 330,
+}
 
 # 惑星の英語名、描画色、およびswissephでのID
 PLANET_INFO = {
@@ -23,7 +31,7 @@ PLANET_INFO = {
     "冥王星": {"en": "Pluto", "color": "#800080", "id": swe.PLUTO},
 }
 
-# 変更点: 都道府県のリストと県庁所在地の緯度経度
+# 都道府県のリストと県庁所在地の緯度経度
 JP_PREFECTURES = {
     '北海道': (43.06417, 141.34694), '青森県': (40.82444, 140.74000), '岩手県': (39.70361, 141.15250),
     '宮城県': (38.26889, 140.87194), '秋田県': (39.71861, 140.10250), '山形県': (38.24056, 140.36333),
@@ -79,72 +87,68 @@ WORLD_CITIES = {
 }
 
 
-# --- 変更点: ここから新しい計算ロジック ---
+# --- 修正点: 新しい計算ロジック ---
 
-def calculate_acg_lines_with_swisseph(birth_dt_jst, birth_lon, birth_lat, selected_planets):
+def calculate_acg_lines_with_swisseph(birth_dt_jst, selected_planets):
     """swissephを使用して正確なアストロカートグラフィのラインを計算する"""
     
     # タイムゾーンをJST（+9時間）として、UTCに変換
     birth_dt_utc = birth_dt_jst - datetime.timedelta(hours=9)
     
     # UTC日時をユリウス日に変換
+    # swe.utc_to_jdは(tjd, ierr)のタプルを返すため、2つの変数で受け取る
     jd_utc, ret = swe.utc_to_jd(
         birth_dt_utc.year, birth_dt_utc.month, birth_dt_utc.day,
         birth_dt_utc.hour, birth_dt_utc.minute, birth_dt_utc.second,
-        1 # Gregorian calendar
+        swe.SE_GREG_CAL # グレゴリオ暦を指定
     )
     if ret != 0:
         st.error("日付の変換に失敗しました。")
         return {}
 
-    # Swiss Ephemerisのデータパスを設定（多くの場合、ライブラリが自動でパスを見つけます）
-    try:
-        swe.set_ephe_path('/path/to/your/ephemeris/files') # 必要に応じてパスを修正
-    except Exception as e:
-        # パス設定が失敗しても、多くの場合デフォルトで動作するため処理を続行
-        pass
+    # 修正点: 不要なパス設定を削除。ライブラリのデフォルトパスを使用させる。
 
     lines = {}
     latitudes = np.linspace(-85, 85, 150)
     
-    # 惑星IDと日本語名の対応辞書を作成
     planet_id_map = {p_info["id"]: p_name for p_name, p_info in PLANET_INFO.items() if p_name in selected_planets}
     
     for planet_id, planet_name in planet_id_map.items():
         ac_lons, dc_lons = [], []
         ac_lats, dc_lats = [], []
 
-        # MCとICの経度を計算 (緯度0度で計算すれば、どの緯度でも同じ経度になる)
-        res, lon_mc, ret = swe.acg_pos(jd_utc, planet_id, 0, 0, swe.SE_MC | swe.SEFLG_SWIEPH, 0)
-        res, lon_ic, ret = swe.acg_pos(jd_utc, planet_id, 0, 0, swe.SE_IC | swe.SEFLG_SWIEPH, 0)
+        res, lon_mc_arr, ret = swe.acg_pos(jd_utc, planet_id, 0, 0, swe.SE_MC | swe.SEFLG_SWIEPH, 0)
+        lon_mc = lon_mc_arr[0] if isinstance(lon_mc_arr, (list, tuple)) else lon_mc_arr
+        
+        res, lon_ic_arr, ret = swe.acg_pos(jd_utc, planet_id, 0, 0, swe.SE_IC | swe.SEFLG_SWIEPH, 0)
+        lon_ic = lon_ic_arr[0] if isinstance(lon_ic_arr, (list, tuple)) else lon_ic_arr
 
         lines[planet_name] = {"MC": {"lon": lon_mc}, "IC": {"lon": lon_ic}}
 
-        # 各緯度に対してACとDCの経度を計算
         for lat in latitudes:
-            # AC (Rise)
-            res_ac, lon_ac, ret_ac = swe.acg_pos(jd_utc, planet_id, lat, 0, swe.SE_RISE | swe.SEFLG_SWIEPH, 0)
+            res_ac, lon_ac_arr, ret_ac = swe.acg_pos(jd_utc, planet_id, lat, 0, swe.SE_RISE | swe.SEFLG_SWIEPH, 0)
             if res_ac == 0:
+                lon_ac = lon_ac_arr[0] if isinstance(lon_ac_arr, (list, tuple)) else lon_ac_arr
                 ac_lons.append(lon_ac)
                 ac_lats.append(lat)
             
-            # DC (Set)
-            res_dc, lon_dc, ret_dc = swe.acg_pos(jd_utc, planet_id, lat, 0, swe.SE_SET | swe.SEFLG_SWIEPH, 0)
+            res_dc, lon_dc_arr, ret_dc = swe.acg_pos(jd_utc, planet_id, lat, 0, swe.SE_SET | swe.SEFLG_SWIEPH, 0)
             if res_dc == 0:
+                lon_dc = lon_dc_arr[0] if isinstance(lon_dc_arr, (list, tuple)) else lon_dc_arr
                 dc_lons.append(lon_dc)
                 dc_lats.append(lat)
         
-        # 経度を-180から180の範囲に正規化
         ac_lons_norm = [(lon + 180) % 360 - 180 for lon in ac_lons]
         dc_lons_norm = [(lon + 180) % 360 - 180 for lon in dc_lons]
 
         lines[planet_name]["AC"] = {"lons": ac_lons_norm, "lats": ac_lats}
         lines[planet_name]["DC"] = {"lons": dc_lons_norm, "lats": dc_lats}
-
+    
+    swe.close() # 計算後にファイルを閉じる
     return lines
 
 
-# --- 変更なし (ただし、この後のコードは新しいacg_linesの形式で動作) ---
+# --- 変更なし (以降の関数) ---
 
 def find_cities_in_bands(acg_lines, selected_planets):
     cities_by_planet_angle = {
@@ -216,7 +220,7 @@ def plot_map_with_lines(acg_lines, selected_planets):
     return fig
 
 def format_data_as_markdown(cities_data):
-    final_blocks = ["# アストロカートグラフィで影響を受ける主要都市リスト"]
+    final_blocks = ["# アストロカートグラフィーで影響を受ける主要都市リスト"]
     for planet in PLANET_INFO.keys():
         if planet in cities_data:
             planet_data = cities_data[planet]
@@ -234,34 +238,19 @@ def format_data_as_markdown(cities_data):
 st.set_page_config(layout="wide")
 st.title('AstroCartography Map Generator 🗺️')
 
-# --- 変更点: ここから入力項目を刷新 ---
 st.header("1. 鑑定対象者の情報を入力")
 
-# 3つのカラムを作成して入力を横に並べる
 col1, col2, col3 = st.columns(3)
-
 with col1:
     birth_date = st.date_input(
-        "生年月日",
-        datetime.date(2000, 1, 1),
+        "生年月日", datetime.date(2000, 1, 1),
         min_value=datetime.date(1930, 1, 1),
         max_value=datetime.date.today()
     )
-
 with col2:
-    birth_time = st.time_input(
-        "出生時刻",
-        datetime.time(12, 0)
-    )
-
+    birth_time = st.time_input("出生時刻", datetime.time(12, 0))
 with col3:
-    pref_name = st.selectbox(
-        "出生地（都道府県）",
-        list(JP_PREFECTURES.keys()),
-        index=12 # 東京都をデフォルトに
-    )
-# --- 入力項目の変更ここまで ---
-
+    pref_name = st.selectbox("出生地（都道府県）", list(JP_PREFECTURES.keys()), index=12)
 
 st.header("2. 描画する天体を選択")
 available_planets = list(PLANET_INFO.keys())
@@ -278,19 +267,14 @@ if st.button('🗺️ 地図と都市リストを生成する'):
     else:
         with st.spinner('正確な天文計算に基づき、地図と都市リストを生成しています...'):
             try:
-                # --- 変更点: ここから計算ロジックの呼び出しを刷新 ---
-                
-                # 1. 入力データから計算用の値を取得
                 birth_dt_jst = datetime.datetime.combine(birth_date, birth_time)
-                birth_lat, birth_lon = JP_PREFECTURES[pref_name]
-
-                # 2. swissephでACGラインを計算
-                acg_lines = calculate_acg_lines_with_swisseph(birth_dt_jst, birth_lon, birth_lat, selected_planets)
                 
-                # --- 計算ロジックの呼び出し変更ここまで (以降は変更なし) ---
+                # 変更点: 新しい計算関数を呼び出す
+                acg_lines = calculate_acg_lines_with_swisseph(birth_dt_jst, selected_planets)
                 
                 if not acg_lines:
-                    st.error("計算に失敗しました。入力値を確認してください。")
+                    # 計算関数内でエラーが表示されるため、ここでは何もしないか、汎用的なメッセージを表示
+                    pass
                 else:
                     fig = plot_map_with_lines(acg_lines, selected_planets)
                     st.plotly_chart(fig, use_container_width=True)
