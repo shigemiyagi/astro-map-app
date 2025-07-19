@@ -28,9 +28,8 @@ PLANET_INFO = {
     "海王星": {"en": "Neptune", "color": "0, 0, 255"},      # Blue
     "冥王星": {"en": "Pluto", "color": "128, 0, 128"},    # Purple
 }
-# 変更点：ASCとMCをPLANET_INFOから削除
 
-# 変更点：世界の有名都市リスト（緯度経度）
+# 世界の有名都市リスト（緯度経度）
 WORLD_CITIES = {
     '東京': (35.6895, 139.6917), 'ロンドン': (51.5074, -0.1278), 'ニューヨーク': (40.7128, -74.0060),
     'パリ': (48.8566, 2.3522), 'シンガポール': (1.3521, 103.8198), '香港': (22.3193, 114.1694),
@@ -57,11 +56,10 @@ WORLD_CITIES = {
     'ハバナ': (23.1136, -82.3666), 'オタワ': (45.4215, -75.6972), 'キャンベラ': (-35.2809, 149.1300),
     'ウェリントン': (-41.2865, 174.7762), 'レイキャビク': (64.1466, -21.9426), 'モンテビデオ': (-34.9011, -56.1645),
     'アスンシオン': (-25.2637, -57.5759), 'キト': (-0.1807, -78.4678), 'パナマシティ': (8.9824, -79.5199),
-
     '福岡': (33.5904, 130.4017), '札幌': (43.0618, 141.3545), '那覇': (26.2124, 127.6792),
     '釜山': (35.1796, 129.0756), 'グアム': (13.4443, 144.7937), 'オークランド': (-36.8485, 174.7633),
     'メルボルン': (-37.8136, 144.9631), 'パース': (-31.9505, 115.8605), 'デンパサール': (-8.6705, 115.2126),
-    'ホノルル': (21.3069, -157.8583), 'アンカレッジ': (61.2181, -149.9003), 'シアトル': (47.6062, -122.3321),
+    'アンカレッジ': (61.2181, -149.9003), 'シアトル': (47.6062, -122.3321),
     'デンバー': (39.7392, -104.9903), 'ヒューストン': (29.7604, -95.3698), 'マイアミ': (25.7617, -80.1918),
     'モントリオール': (45.5017, -73.5673), 'マチュピチュ': (-13.1631, -72.5450), 'イースター島': (-27.1127, -109.3497)
 }
@@ -97,7 +95,7 @@ def ecliptic_to_equatorial(ecl_lon_deg, obliquity_deg=23.439281):
 
 def calculate_acg_lines(planet_coords, lst_deg):
     lines = {}
-    latitudes = np.linspace(-70, 70, 150) # 解像度を少し上げる
+    latitudes = np.linspace(-85, 85, 150) # Use a wider latitude range for better plotting
     for planet, coords in planet_coords.items():
         ra_deg, dec_deg = coords["ra"], coords["dec"]
         ra_rad, dec_rad = np.radians(ra_deg), np.radians(dec_deg)
@@ -125,44 +123,36 @@ def calculate_acg_lines(planet_coords, lst_deg):
         lines[planet]["DC"] = {"lons": dc_lons, "lats": valid_lats}
     return lines
 
-# --- 変更点：ここから新しい関数 ---
-
 def find_cities_in_bands(acg_lines, selected_planets):
-    """計算された帯の中にどの都市が入るか判定する"""
     cities_in_influence = defaultdict(list)
-    BAND_WIDTH = 5.0  # 中心線から左右5度
-
+    BAND_WIDTH = 5.0
     for city_name, (city_lat, city_lon) in WORLD_CITIES.items():
         for planet in selected_planets:
             if planet not in acg_lines: continue
-            
             lines = acg_lines[planet]
             planet_en = PLANET_INFO[planet]["en"]
-
-            # MC/ICバンドのチェック
             for angle in ["MC", "IC"]:
                 center_lon = lines[angle]["lon"]
-                # 経度の差分を計算（180度境界を考慮）
                 lon_diff = abs(city_lon - center_lon)
                 if min(lon_diff, 360 - lon_diff) <= BAND_WIDTH:
                     cities_in_influence[f"{planet_en}-{angle}"].append(city_name)
-
-            # AC/DCバンドのチェック
             for angle in ["AC", "DC"]:
                 line_data = lines[angle]
                 if not line_data["lats"]: continue
-                # 都市の緯度に最も近いライン上の点を線形補間で探す
                 center_lon_at_city_lat = np.interp(city_lat, line_data["lats"], line_data["lons"])
                 lon_diff = abs(city_lon - center_lon_at_city_lat)
                 if min(lon_diff, 360 - lon_diff) <= BAND_WIDTH:
                     cities_in_influence[f"{planet_en}-{angle}"].append(city_name)
-    
     return cities_in_influence
 
-# --- 描画関数 (帯を描画するように修正) ---
+# --- ここから修正された描画関数 ---
 
 def plot_map_with_bands(acg_lines, selected_planets):
-    """Plotlyで帯（バンド）を描画する"""
+    """
+    Plotlyで帯（バンド）を描画する。
+    日付変更線（経度180度）をまたぐ描画の不具合を避けるため、
+    帯を分割して描画するロジックを含む。
+    """
     fig = go.Figure()
     BAND_WIDTH = 5.0
     
@@ -175,25 +165,49 @@ def plot_map_with_bands(acg_lines, selected_planets):
         planet_en = PLANET_INFO[planet_jp]["en"]
         color_rgb = PLANET_INFO[planet_jp]["color"]
         
+        # 凡例用のダミー線（透明だが、凡例には表示される）
+        fig.add_trace(go.Scattergeo(
+            lon=[None], lat=[None], mode='lines',
+            line=dict(color=f"rgb({color_rgb})", width=5),
+            name=f'{planet_en} Lines' # 凡例を惑星名でまとめる
+        ))
+        
         for angle in ["MC", "IC", "AC", "DC"]:
             line_data = acg_lines[planet_jp][angle]
             
-            # 凡例用のダミー線（透明）
-            fig.add_trace(go.Scattergeo(lon=[None], lat=[None], mode='lines',
-                                      line=dict(color=f"rgb({color_rgb})", width=5),
-                                      name=f'{planet_en}-{angle}'))
-
+            fill_color = f"rgba({color_rgb}, 0.2)"
+            
+            # --- 分割描画ロジック ---
             if angle in ["MC", "IC"]:
                 center_lon = line_data["lon"]
-                lons = [center_lon - BAND_WIDTH, center_lon + BAND_WIDTH, center_lon + BAND_WIDTH, center_lon - BAND_WIDTH]
-                lats = [-85, -85, 85, 85]
-                fig.add_trace(go.Scattergeo(
-                    lon=lons, lat=lats, fill="toself",
-                    fillcolor=f"rgba({color_rgb}, 0.2)",
-                    line_width=0, mode='lines',
-                    hoverinfo='name', name=f'{planet_en}-{angle}', showlegend=False
-                ))
-            else: # AC, DC
+                lon1 = center_lon - BAND_WIDTH
+                lon2 = center_lon + BAND_WIDTH
+                
+                # 帯が日付変更線をまたぐかチェック
+                if lon1 < -180 or lon2 > 180:
+                    # 2つに分割して描画
+                    # Part 1
+                    fig.add_trace(go.Scattergeo(
+                        lon=[lon1, 180, 180, lon1], lat=[-85, -85, 85, 85],
+                        fill="toself", fillcolor=fill_color, line_width=0, mode='lines',
+                        hoverinfo='none', showlegend=False
+                    ))
+                    # Part 2
+                    fig.add_trace(go.Scattergeo(
+                        lon=[-180, lon2 if lon2 < 180 else lon2 - 360, lon2 if lon2 < 180 else lon2 - 360, -180],
+                        lat=[-85, -85, 85, 85],
+                        fill="toself", fillcolor=fill_color, line_width=0, mode='lines',
+                        hoverinfo='none', showlegend=False
+                    ))
+                else:
+                    # 1つの帯として描画
+                    fig.add_trace(go.Scattergeo(
+                        lon=[lon1, lon2, lon2, lon1], lat=[-85, -85, 85, 85],
+                        fill="toself", fillcolor=fill_color, line_width=0, mode='lines',
+                        hoverinfo='none', showlegend=False
+                    ))
+            
+            else: # AC, DC (曲線)
                 if not line_data["lats"]: continue
                 lons_center = np.array(line_data["lons"])
                 lats_center = np.array(line_data["lats"])
@@ -201,20 +215,27 @@ def plot_map_with_bands(acg_lines, selected_planets):
                 lons_minus_5 = lons_center - BAND_WIDTH
                 lons_plus_5 = lons_center + BAND_WIDTH
                 
-                # 閉じたポリゴンを作成
                 full_lons = np.concatenate([lons_minus_5, lons_plus_5[::-1]])
                 full_lats = np.concatenate([lats_center, lats_center[::-1]])
                 
-                fig.add_trace(go.Scattergeo(
-                    lon=full_lons, lat=full_lats, fill="toself",
-                    fillcolor=f"rgba({color_rgb}, 0.2)",
-                    line_width=0, mode='lines',
-                    hoverinfo='name', name=f'{planet_en}-{angle}', showlegend=False
-                ))
+                # 経度の差が180を超える点（=日付変更線をまたぐ点）でポリゴンを分割
+                jump_indices = np.where(np.abs(np.diff(full_lons)) > 180)[0] + 1
+                
+                lon_segments = np.split(full_lons, jump_indices)
+                lat_segments = np.split(full_lats, jump_indices)
+                
+                for lon_seg, lat_seg in zip(lon_segments, lat_segments):
+                    if len(lon_seg) > 2: # ポリゴンを形成できるだけの点があるか
+                        fig.add_trace(go.Scattergeo(
+                            lon=lon_seg, lat=lat_seg, fill="toself",
+                            fillcolor=fill_color, line_width=0, mode='lines',
+                            hoverinfo='none', showlegend=False
+                        ))
 
     fig.update_layout(
         title_text='アストロカートグラフィーマップ（影響帯バージョン）',
         showlegend=True,
+        legend=dict(traceorder='normal'),
         geo=dict(
             projection_type='natural earth', showland=True, landcolor='rgb(243, 243, 243)',
             showocean=True, oceancolor='rgb(217, 237, 247)',
@@ -225,9 +246,10 @@ def plot_map_with_bands(acg_lines, selected_planets):
     )
     return fig
 
+# --- ここまでが修正された描画関数 ---
 
-# --- Streamlit アプリ本体 ---
 
+# --- Streamlit アプリ本体 (変更なし) ---
 st.set_page_config(layout="wide")
 st.title('AstroCartography Map Generator 🗺️')
 
@@ -250,7 +272,6 @@ st.header("1. ネイタルデータを入力")
 user_input = st.text_area("鑑定対象者のネイタルデータを以下に貼り付けてください。", sample_data, height=300)
 
 st.header("2. 描画する天体を選択")
-# 変更点：選択肢からASC/MCを除外
 available_planets = list(PLANET_INFO.keys())
 default_selections = ["太陽", "月", "金星", "木星"]
 selected_planets = st.multiselect(
@@ -281,11 +302,9 @@ if st.button('🗺️ 影響帯の地図を描画する'):
 
                     acg_lines = calculate_acg_lines(planet_coords, lst_deg)
                     
-                    # 変更点：地図描画関数を新しいものに差し替え
                     fig = plot_map_with_bands(acg_lines, selected_planets)
                     st.plotly_chart(fig, use_container_width=True)
 
-                    # 変更点：影響下の都市リストを計算して表示
                     st.header("🌠 影響を受ける主要都市リスト")
                     cities_in_bands = find_cities_in_bands(acg_lines, selected_planets)
                     
