@@ -64,7 +64,6 @@ WORLD_CITIES = {
     'モントリオール': (45.5017, -73.5673), 'マチュピチュ': (-13.1631, -72.5450), 'イースター島': (-27.1127, -109.3497)
 }
 
-
 # --- 計算関数 (変更なし) ---
 def parse_natal_data(text_data):
     planet_data = {}
@@ -95,7 +94,7 @@ def ecliptic_to_equatorial(ecl_lon_deg, obliquity_deg=23.439281):
 
 def calculate_acg_lines(planet_coords, lst_deg):
     lines = {}
-    latitudes = np.linspace(-85, 85, 150) # Use a wider latitude range for better plotting
+    latitudes = np.linspace(-85, 85, 150)
     for planet, coords in planet_coords.items():
         ra_deg, dec_deg = coords["ra"], coords["dec"]
         ra_rad, dec_rad = np.radians(ra_deg), np.radians(dec_deg)
@@ -145,18 +144,17 @@ def find_cities_in_bands(acg_lines, selected_planets):
                     cities_in_influence[f"{planet_en}-{angle}"].append(city_name)
     return cities_in_influence
 
-# --- ここから修正された描画関数 ---
+# --- ここからが再修正された描画関数 ---
 
 def plot_map_with_bands(acg_lines, selected_planets):
     """
     Plotlyで帯（バンド）を描画する。
     日付変更線（経度180度）をまたぐ描画の不具合を避けるため、
-    帯を分割して描画するロジックを含む。
+    帯を分割するか、データにNoneを挿入して描画する。
     """
     fig = go.Figure()
     BAND_WIDTH = 5.0
     
-    # ベースマップ
     fig.add_trace(go.Scattergeo(lon=[], lat=[], mode='lines', line=dict(width=1, color='gray'), showlegend=False))
 
     for planet_jp in selected_planets:
@@ -165,45 +163,43 @@ def plot_map_with_bands(acg_lines, selected_planets):
         planet_en = PLANET_INFO[planet_jp]["en"]
         color_rgb = PLANET_INFO[planet_jp]["color"]
         
-        # 凡例用のダミー線（透明だが、凡例には表示される）
         fig.add_trace(go.Scattergeo(
             lon=[None], lat=[None], mode='lines',
             line=dict(color=f"rgb({color_rgb})", width=5),
-            name=f'{planet_en} Lines' # 凡例を惑星名でまとめる
+            name=f'{planet_en} Lines'
         ))
         
         for angle in ["MC", "IC", "AC", "DC"]:
             line_data = acg_lines[planet_jp][angle]
-            
             fill_color = f"rgba({color_rgb}, 0.2)"
             
-            # --- 分割描画ロジック ---
             if angle in ["MC", "IC"]:
                 center_lon = line_data["lon"]
                 lon1 = center_lon - BAND_WIDTH
                 lon2 = center_lon + BAND_WIDTH
                 
-                # 帯が日付変更線をまたぐかチェック
+                # 帯が日付変更線をまたぐ場合の分割描画
                 if lon1 < -180 or lon2 > 180:
-                    # 2つに分割して描画
-                    # Part 1
+                    # 経度を-180から180の範囲に正規化
+                    w_lon1 = (lon1 + 180) % 360 - 180
+                    w_lon2 = (lon2 + 180) % 360 - 180
+                    
+                    # 2つのポリゴンに分割
                     fig.add_trace(go.Scattergeo(
-                        lon=[lon1, 180, 180, lon1], lat=[-85, -85, 85, 85],
-                        fill="toself", fillcolor=fill_color, line_width=0, mode='lines',
+                        lon=[w_lon1, 180, 180, w_lon1], lat=[-85, -85, 85, 85],
+                        fill="toself", fillcolor=fill_color, line_width=0,
                         hoverinfo='none', showlegend=False
                     ))
-                    # Part 2
                     fig.add_trace(go.Scattergeo(
-                        lon=[-180, lon2 if lon2 < 180 else lon2 - 360, lon2 if lon2 < 180 else lon2 - 360, -180],
-                        lat=[-85, -85, 85, 85],
-                        fill="toself", fillcolor=fill_color, line_width=0, mode='lines',
+                        lon=[-180, w_lon2, w_lon2, -180], lat=[-85, -85, 85, 85],
+                        fill="toself", fillcolor=fill_color, line_width=0,
                         hoverinfo='none', showlegend=False
                     ))
                 else:
-                    # 1つの帯として描画
+                    # 1つのポリゴンとして描画
                     fig.add_trace(go.Scattergeo(
                         lon=[lon1, lon2, lon2, lon1], lat=[-85, -85, 85, 85],
-                        fill="toself", fillcolor=fill_color, line_width=0, mode='lines',
+                        fill="toself", fillcolor=fill_color, line_width=0,
                         hoverinfo='none', showlegend=False
                     ))
             
@@ -215,22 +211,20 @@ def plot_map_with_bands(acg_lines, selected_planets):
                 lons_minus_5 = lons_center - BAND_WIDTH
                 lons_plus_5 = lons_center + BAND_WIDTH
                 
+                # 閉じたポリゴンの座標を作成
                 full_lons = np.concatenate([lons_minus_5, lons_plus_5[::-1]])
                 full_lats = np.concatenate([lats_center, lats_center[::-1]])
                 
-                # 経度の差が180を超える点（=日付変更線をまたぐ点）でポリゴンを分割
-                jump_indices = np.where(np.abs(np.diff(full_lons)) > 180)[0] + 1
+                # 日付変更線をまたぐ箇所（経度の差が180を超える点）にNoneを挿入
+                jumps = np.where(np.abs(np.diff(full_lons)) > 180)[0]
+                processed_lons = np.insert(full_lons, jumps + 1, None)
+                processed_lats = np.insert(full_lats, jumps + 1, None)
                 
-                lon_segments = np.split(full_lons, jump_indices)
-                lat_segments = np.split(full_lats, jump_indices)
-                
-                for lon_seg, lat_seg in zip(lon_segments, lat_segments):
-                    if len(lon_seg) > 2: # ポリゴンを形成できるだけの点があるか
-                        fig.add_trace(go.Scattergeo(
-                            lon=lon_seg, lat=lat_seg, fill="toself",
-                            fillcolor=fill_color, line_width=0, mode='lines',
-                            hoverinfo='none', showlegend=False
-                        ))
+                fig.add_trace(go.Scattergeo(
+                    lon=processed_lons, lat=processed_lats, fill="toself",
+                    fillcolor=fill_color, line_width=0,
+                    hoverinfo='none', showlegend=False
+                ))
 
     fig.update_layout(
         title_text='アストロカートグラフィーマップ（影響帯バージョン）',
@@ -246,7 +240,7 @@ def plot_map_with_bands(acg_lines, selected_planets):
     )
     return fig
 
-# --- ここまでが修正された描画関数 ---
+# --- ここまでが再修正された描画関数 ---
 
 
 # --- Streamlit アプリ本体 (変更なし) ---
