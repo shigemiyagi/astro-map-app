@@ -118,24 +118,16 @@ def calculate_acg_lines(planet_coords, lst_deg):
         lines[planet]["DC"] = {"lons": dc_lons, "lats": valid_lats}
     return lines
 
-# --- 修正点: 都市判定の関数。戻り値の形式を変更 ---
 def find_cities_in_bands(acg_lines, selected_planets):
-    """
-    影響下の都市を判定し、惑星を行、アングルを列とする
-    ネストした辞書形式で結果を返す。
-    """
-    # { '太陽': {'AC': ['都市A'], 'DC': [], ...}, '月': ... } という形式
     cities_by_planet_angle = {
         planet: {angle: [] for angle in ["AC", "DC", "IC", "MC"]}
         for planet in selected_planets
     }
-    
     BAND_WIDTH = 5.0
     for city_name, (city_lat, city_lon) in WORLD_CITIES.items():
         for planet in selected_planets:
             if planet not in acg_lines: continue
             lines = acg_lines[planet]
-            
             for angle in ["MC", "IC"]:
                 line_data = lines.get(angle)
                 if not line_data or line_data.get("lon") is None: continue
@@ -143,7 +135,6 @@ def find_cities_in_bands(acg_lines, selected_planets):
                 lon_diff = abs(city_lon - center_lon)
                 if min(lon_diff, 360 - lon_diff) <= BAND_WIDTH:
                     cities_by_planet_angle[planet][angle].append(city_name)
-                    
             for angle in ["AC", "DC"]:
                 line_data = lines.get(angle)
                 if not line_data or not line_data.get("lats"): continue
@@ -151,11 +142,8 @@ def find_cities_in_bands(acg_lines, selected_planets):
                 lon_diff = abs(city_lon - center_lon_at_city_lat)
                 if min(lon_diff, 360 - lon_diff) <= BAND_WIDTH:
                     cities_by_planet_angle[planet][angle].append(city_name)
-                    
     return cities_by_planet_angle
 
-
-# --- 描画関数 (変更なし) ---
 def plot_map_with_lines(acg_lines, selected_planets):
     fig = go.Figure()
     fig.add_trace(go.Scattergeo(lon=[], lat=[], mode='lines', line=dict(width=1, color='gray'), showlegend=False))
@@ -255,30 +243,52 @@ if st.button('🗺️ 地図と都市リストを生成する'):
                     fig = plot_map_with_lines(acg_lines, selected_planets)
                     st.plotly_chart(fig, use_container_width=True)
 
-                    # --- 修正点: ここから都市リストの表示をテーブル形式に変更 ---
+                    # --- 修正点: 都市リストをHTMLテーブルで表示 ---
                     st.header("🌠 影響を受ける主要都市リスト（中心線から±5度の範囲）")
                     
                     cities_data = find_cities_in_bands(acg_lines, selected_planets)
                     
-                    if not any(any(cities) for cities in cities_data.values()):
+                    if not any(any(cities.values()) for cities in cities_data.values()):
                          st.info("選択された影響線の近く（±5度）には、リストにある主要都市は含まれていませんでした。")
                     else:
-                        # 辞書からPandas DataFrameを作成
                         df = pd.DataFrame.from_dict(cities_data, orient='index')
-                        
-                        # 列の順序を固定
                         df = df.reindex(columns=["AC", "DC", "IC", "MC"])
                         
-                        # セル内のリストをカンマ区切りの文字列に変換
-                        def join_cities(cities):
+                        # セル内の都市リストをHTMLの改行タグ<br>で連結する
+                        def join_cities_html(cities):
                             if isinstance(cities, list) and cities:
-                                return ", ".join(sorted(cities))
-                            return "" # 空のリストやデータがない場合は空文字列
+                                return "<br>".join(sorted(cities))
+                            return ""
                         
-                        df = df.applymap(join_cities)
+                        df = df.applymap(join_cities_html)
 
-                        # Streamlitでデータフレームを表示
-                        st.dataframe(df)
+                        # Pandas DataFrameをHTMLに変換
+                        # escape=Falseにすることで<br>タグがそのままHTMLとして出力される
+                        html = df.to_html(escape=False, border=0, classes=["city-table"])
+
+                        # CSSでテーブルのスタイルを定義し、st.markdownで表示
+                        st.markdown(
+                            f"""
+                            <style>
+                                .city-table {{
+                                    width: 100%;
+                                    border-collapse: collapse;
+                                }}
+                                .city-table th, .city-table td {{
+                                    border: 1px solid #e1e1e1;
+                                    padding: 8px;
+                                    text-align: left;
+                                    vertical-align: top;
+                                    word-wrap: break-word; /* セル内での改行を強制 */
+                                }}
+                                .city-table th {{
+                                    background-color: #f2f2f2;
+                                }}
+                            </style>
+                            {html}
+                            """,
+                            unsafe_allow_html=True
+                        )
 
             except Exception as e:
                 st.error(f"エラーが発生しました: {e}")
