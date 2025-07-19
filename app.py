@@ -91,17 +91,8 @@ WORLD_CITIES = {
 # --- 新しい計算ロジック ---
 
 def calculate_acg_lines(birth_dt_jst, selected_planets):
-    # --- 修正点: この関数にデバッグ機能を追加 ---
-    debug_messages = []
-    
-    try:
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        ephe_path = os.path.join(script_dir, 'ephe')
-        debug_messages.append(f"1. 天体暦フォルダのパスを '{ephe_path}' に設定します。")
-        swe.set_ephe_path(ephe_path)
-    except NameError:
-        debug_messages.append("1. 絶対パスの設定に失敗したため、相対パス './ephe' を使用します。")
-        swe.set_ephe_path('./ephe')
+    # 修正点: パス指定を最もシンプルな 'ephe' に変更
+    swe.set_ephe_path('ephe')
     
     birth_dt_utc = birth_dt_jst - datetime.timedelta(hours=9)
     
@@ -111,19 +102,12 @@ def calculate_acg_lines(birth_dt_jst, selected_planets):
             birth_dt_utc.hour, birth_dt_utc.minute, birth_dt_utc.second,
             swe.GREG_CAL
         )
-        debug_messages.append(f"2. 日付変換成功: ユリウス日(UT) = {jd_ut}")
     except Exception as e:
-        debug_messages.append(f"2. 日付変換でエラーが発生しました: {e}")
-        st.session_state['debug_messages'] = debug_messages
+        st.error(f"日付の変換中にエラーが発生しました: {e}")
+        st.error("これは通常、天体暦ファイルが見つからない場合に起こります。epheフォルダと、その中の.se1ファイルが正しくGitHubリポジトリにアップロードされているか、再度ご確認ください。")
         return {}
 
-    try:
-        gst = swe.sidtime(jd_ut)
-        debug_messages.append(f"3. 恒星時計算成功: GST = {gst}")
-    except Exception as e:
-        debug_messages.append(f"3. 恒星時(sidtime)の計算でエラーが発生しました: {e}")
-        st.session_state['debug_messages'] = debug_messages
-        return {}
+    gst = swe.sidtime(jd_ut)
 
     lines = {}
     latitudes = np.linspace(-85, 85, 150)
@@ -133,11 +117,12 @@ def calculate_acg_lines(birth_dt_jst, selected_planets):
     for planet_id, planet_name in planet_id_map.items():
         pos_data, err_str = swe.calc_ut(jd_et, planet_id, swe.FLG_SWIEPH | swe.FLG_EQUATORIAL)
         if err_str:
-            debug_messages.append(f"4. {planet_name}の位置計算に失敗: {err_str}")
+            # もし個別の惑星で計算エラーが出た場合（通常は起こらない）
+            st.warning(f"{planet_name}の位置計算に失敗しました: {err_str}")
             continue
-        debug_messages.append(f"4. {planet_name}の位置計算成功。")
 
         ra, dec = pos_data[0], pos_data[1]
+
         lon_mc = (ra - gst + 180) % 360 - 180
         lon_ic = (lon_mc + 180 + 180) % 360 - 180
         lines[planet_name] = {"MC": {"lon": lon_mc}, "IC": {"lon": lon_ic}}
@@ -161,11 +146,11 @@ def calculate_acg_lines(birth_dt_jst, selected_planets):
         lines[planet_name]["DC"] = {"lons": dc_lons, "lats": dc_lats}
     
     swe.close()
-    st.session_state['debug_messages'] = debug_messages
     return lines
 
 
 # --- 変更なし (以降の関数) ---
+
 def find_cities_in_bands(acg_lines, selected_planets):
     cities_by_planet_angle = {
         planet: {angle: [] for angle in ["AC", "DC", "IC", "MC"]}
@@ -287,18 +272,16 @@ if st.button('🗺️ 地図と都市リストを生成する'):
                 
                 acg_lines = calculate_acg_lines(birth_dt_jst, selected_planets)
                 
-                # --- 修正点: デバッグ情報を表示 ---
-                if 'debug_messages' in st.session_state:
-                    with st.expander("詳細な計算ログ（デバッグ用）"):
-                        st.write(st.session_state['debug_messages'])
-
                 if not acg_lines:
-                    st.warning("計算結果が空でした。エラーメッセージを確認するか、別の入力でお試しください。")
+                    # 計算関数の中でエラーが表示されるため、ここでは簡潔に
+                    st.warning("計算に失敗しました。上記のエラーメッセージをご確認ください。")
                 else:
                     fig = plot_map_with_lines(acg_lines, selected_planets)
                     st.plotly_chart(fig, use_container_width=True)
+
                     st.header("🌠 影響を受ける主要都市リスト（中心線から±5度の範囲）")
                     cities_data = find_cities_in_bands(acg_lines, selected_planets)
+                    
                     if not any(any(cities.values()) for cities in cities_data.values()):
                          st.info("選択された影響線の近く（±5度）には、リストにある主要都市は含まれていませんでした。")
                     else:
@@ -316,6 +299,7 @@ if st.button('🗺️ 地図と都市リストを生成する'):
                             table.dataframe th { background-color: #f2f2f2; }
                         </style>""", unsafe_allow_html=True)
                         st.markdown(html_table, unsafe_allow_html=True)
+
                         st.divider()
                         st.subheader("📋 マークダウン形式でコピー")
                         markdown_text = format_data_as_markdown(cities_data)
@@ -324,6 +308,7 @@ if st.button('🗺️ 地図と都市リストを生成する'):
                             markdown_text,
                             height=300
                         )
+
             except Exception as e:
                 st.error(f"エラーが発生しました: {e}")
                 st.error("入力データの形式が正しいか、もう一度確認してください。")
