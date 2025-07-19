@@ -6,9 +6,17 @@ import re
 from collections import defaultdict
 import datetime
 import os
-from skyfield.api import load, Topos # 修正点: skyfieldをインポート
+from skyfield.api import load, Topos
 
 # --- 定数とデータ ---
+
+# 星座の開始度数（黄経）
+ZODIAC_OFFSETS = {
+    "牡羊座": 0, "ARIES": 0, "牡牛座": 30, "TAURUS": 30, "双子座": 60, "GEMINI": 60,
+    "蟹座": 90, "CANCER": 90, "獅子座": 120, "LEO": 120, "乙女座": 150, "VIRGO": 150,
+    "天秤座": 180, "LIBRA": 180, "蠍座": 210, "SCORPIO": 210, "射手座": 240, "SAGITTARIUS": 240,
+    "山羊座": 270, "CAPRICORN": 270, "水瓶座": 300, "AQUARIUS": 300, "魚座": 330, "PISCES": 330,
+}
 
 # 惑星の英語名、描画色
 PLANET_INFO = {
@@ -74,19 +82,17 @@ WORLD_CITIES = {
     'モントリオール': (45.5017, -73.5673), 'マチュピチュ': (-13.1631, -72.5450), 'イースター島': (-27.1127, -109.3497)
 }
 
-
-# --- 修正点: 全面的に刷新した計算ロジック (skyfieldを使用) ---
-@st.cache_data
+# --- 修正点: @st.cache_data -> @st.cache_resource ---
+@st.cache_resource
 def load_ephemeris():
-    """天体暦データをロードする（キャッシュして高速化）"""
+    """天体暦データをロードする（リソースとしてキャッシュ）"""
     return load('de421.bsp')
 
+# --- 計算ロジック ---
 def calculate_acg_lines(birth_dt_jst, selected_planets):
-    """skyfieldを使い、手動でアストロカートグラフィのラインを正確に計算する"""
     eph = load_ephemeris()
     earth = eph['earth']
     
-    # 惑星名とskyfieldオブジェクトのマッピング
     planet_map = {
         "太陽": eph['sun'], "月": eph['moon'], "水星": eph['mercury'],
         "金星": eph['venus'], "火星": eph['mars'], "木星": eph['jupiter barycenter'],
@@ -97,7 +103,7 @@ def calculate_acg_lines(birth_dt_jst, selected_planets):
     ts = load.timescale()
     t = ts.from_datetime(birth_dt_jst.replace(tzinfo=datetime.timezone(datetime.timedelta(hours=9))))
     
-    gst_rad = t.gmst * (np.pi / 12) # GSTをラジアン単位で取得
+    gst_rad = t.gmst * (np.pi / 12)
 
     lines = {}
     latitudes = np.linspace(-85, 85, 150)
@@ -105,21 +111,17 @@ def calculate_acg_lines(birth_dt_jst, selected_planets):
     for planet_name in selected_planets:
         planet_obj = planet_map[planet_name]
         
-        # 地心から見た惑星の赤道座標(赤経RA, 赤緯Dec)を取得
         astrometric = earth.at(t).observe(planet_obj)
         ra, dec, distance = astrometric.radec()
         
         ra_rad = ra.radians
         dec_rad = dec.radians
 
-        # MC/ICラインの計算
-        lon_mc_rad = ra_rad - gst_rad
-        lon_mc = np.degrees(lon_mc_rad)
+        lon_mc = np.degrees(ra_rad - gst_rad)
         lon_mc = (lon_mc + 180) % 360 - 180
         lon_ic = (lon_mc + 180 + 180) % 360 - 180
         lines[planet_name] = {"MC": {"lon": lon_mc}, "IC": {"lon": lon_ic}}
 
-        # AC/DCラインの計算
         ac_lons, dc_lons = [], []
         ac_lats, dc_lats = [], []
         
@@ -132,12 +134,10 @@ def calculate_acg_lines(birth_dt_jst, selected_planets):
             if -1 <= cos_lha_val <= 1:
                 lha_rad = np.arccos(cos_lha_val)
                 
-                # AC (Rise): LST = RA - LHA -> Lon = RA - LHA - GST
                 lon_ac_rad = ra_rad - lha_rad - gst_rad
                 ac_lons.append((np.degrees(lon_ac_rad) + 180) % 360 - 180)
                 ac_lats.append(lat)
                 
-                # DC (Set): LST = RA + LHA -> Lon = RA + LHA - GST
                 lon_dc_rad = ra_rad + lha_rad - gst_rad
                 dc_lons.append((np.degrees(lon_dc_rad) + 180) % 360 - 180)
                 dc_lats.append(lat)
