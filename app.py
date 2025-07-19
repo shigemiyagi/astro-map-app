@@ -91,35 +91,30 @@ WORLD_CITIES = {
 # --- 新しい計算ロジック ---
 
 def calculate_acg_lines_with_swisseph(birth_dt_jst, selected_planets):
-    """swissephを使用して正確なアストロカートグラフィーのラインを計算する"""
+    """swissephを使用して正確なアストロカートグラフィのラインを計算する"""
     
-    # 修正点1: スクリプトからの相対パスではなく、より確実な絶対パスを構築
     try:
+        # スクリプトの場所を基準にepheフォルダの絶対パスを作成
         script_dir = os.path.dirname(os.path.abspath(__file__))
         ephe_path = os.path.join(script_dir, 'ephe')
         swe.set_ephe_path(ephe_path)
-    except Exception:
-        # __file__ が利用できない環境（例：インタラクティブなノートブック）のためのフォールバック
+    except NameError:
+        # Streamlitの一部環境で__file__が定義されていない場合のフォールバック
         swe.set_ephe_path('./ephe')
-
     
     birth_dt_utc = birth_dt_jst - datetime.timedelta(hours=9)
     
-    # 修正点2: swissephの戻り値を正しく処理する
-    # utc_to_jdは (ユリウス日のタプル, エラーメッセージ文字列) を返す
-    jd_tuple, err_str = swe.utc_to_jd(
-        birth_dt_utc.year, birth_dt_utc.month, birth_dt_utc.day,
-        birth_dt_utc.hour, birth_dt_utc.minute, birth_dt_utc.second,
-        swe.GREG_CAL
-    )
-    
-    # エラーメッセージ文字列が空でない場合、エラーとして処理
-    if err_str:
-        st.error(f"日付の変換に失敗しました: {err_str}")
+    # 修正点: utc_to_jdは(JD_UT, JD_ET)のタプルを返す。エラーの場合は例外が発生する
+    try:
+        jd_ut, jd_et = swe.utc_to_jd(
+            birth_dt_utc.year, birth_dt_utc.month, birth_dt_utc.day,
+            birth_dt_utc.hour, birth_dt_utc.minute, birth_dt_utc.second,
+            swe.GREG_CAL
+        )
+    except Exception as e:
+        st.error(f"日付の変換に失敗しました: {e}")
         st.error("天体暦ファイルが'ephe'フォルダに正しく配置されているか、再度ご確認ください。")
         return {}
-        
-    jd_utc = jd_tuple[0] # 計算にはUTを使用
 
     lines = {}
     latitudes = np.linspace(-85, 85, 150)
@@ -132,22 +127,23 @@ def calculate_acg_lines_with_swisseph(birth_dt_jst, selected_planets):
         ac_lons, dc_lons = [], []
         ac_lats, dc_lats = [], []
 
-        res, lon_mc_arr, err_str_mc = swe.acg_pos(jd_utc, planet_id, 0, 0, swe.MC | calc_flags, 0)
+        # 計算にはより均等な天体時(Ephemeris Time)であるjd_etを使用
+        res, lon_mc_arr, err_str = swe.acg_pos(jd_et, planet_id, 0, 0, swe.MC | calc_flags, 0)
         lon_mc = lon_mc_arr[0] if isinstance(lon_mc_arr, (list, tuple)) else lon_mc_arr
         
-        res, lon_ic_arr, err_str_ic = swe.acg_pos(jd_utc, planet_id, 0, 0, swe.IC | calc_flags, 0)
+        res, lon_ic_arr, err_str = swe.acg_pos(jd_et, planet_id, 0, 0, swe.IC | calc_flags, 0)
         lon_ic = lon_ic_arr[0] if isinstance(lon_ic_arr, (list, tuple)) else lon_ic_arr
 
         lines[planet_name] = {"MC": {"lon": lon_mc}, "IC": {"lon": lon_ic}}
 
         for lat in latitudes:
-            res_ac, lon_ac_arr, ret_ac = swe.acg_pos(jd_utc, planet_id, lat, 0, swe.RISE | calc_flags, 0)
+            res_ac, lon_ac_arr, err_str = swe.acg_pos(jd_et, planet_id, lat, 0, swe.RISE | calc_flags, 0)
             if res_ac == 0:
                 lon_ac = lon_ac_arr[0] if isinstance(lon_ac_arr, (list, tuple)) else lon_ac_arr
                 ac_lons.append(lon_ac)
                 ac_lats.append(lat)
             
-            res_dc, lon_dc_arr, ret_dc = swe.acg_pos(jd_utc, planet_id, lat, 0, swe.SET | calc_flags, 0)
+            res_dc, lon_dc_arr, err_str = swe.acg_pos(jd_et, planet_id, lat, 0, swe.SET | calc_flags, 0)
             if res_dc == 0:
                 lon_dc = lon_dc_arr[0] if isinstance(lon_dc_arr, (list, tuple)) else lon_dc_arr
                 dc_lons.append(lon_dc)
@@ -280,7 +276,6 @@ if st.button('🗺️ 地図と都市リストを生成する'):
     if not all([birth_date, birth_time, pref_name]):
         st.error("すべての鑑定情報を入力してください。")
     else:
-        # 診断機能は一度削除し、計算ロジックに集中します
         with st.spinner('正確な天文計算に基づき、地図と都市リストを生成しています...'):
             try:
                 birth_dt_jst = datetime.datetime.combine(birth_date, birth_time)
