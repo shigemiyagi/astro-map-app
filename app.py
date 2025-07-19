@@ -165,20 +165,21 @@ def plot_map_with_lines(acg_lines, selected_planets):
                 lon_val = line_data.get("lon")
                 if lon_val is None:
                     continue
-                lons = [lon_val, lon_val]
-                lats = [-85, 85]
+                # Pythonリストではなく、Numpy配列として作成
+                lons = np.array([lon_val, lon_val])
+                lats = np.array([-85, 85])
             else: # AC, DC
                 lons_list = line_data.get("lons")
-                if not lons_list: # Noneまたは空リストの場合
+                if not lons_list:
                     continue
                 lons = np.array(lons_list)
                 lats = np.array(line_data.get("lats", []))
 
-            # 日付変更線をまたぐ箇所で線を分割 (lonsが2点以上の場合のみ)
+            # lonsがNumpy配列であることが保証されているため、.astypeは不要で、np.diffは安全
             if len(lons) > 1:
                 jumps = np.where(np.abs(np.diff(lons)) > 180)[0]
-                processed_lons = np.insert(lons.astype(float), jumps + 1, None)
-                processed_lats = np.insert(lats.astype(float), jumps + 1, None)
+                processed_lons = np.insert(lons, jumps + 1, None)
+                processed_lats = np.insert(lats, jumps + 1, None)
             else:
                 processed_lons = lons
                 processed_lats = lats
@@ -204,6 +205,7 @@ def plot_map_with_lines(acg_lines, selected_planets):
     return fig
 
 # --- ここまでが新しい描画関数 ---
+
 
 # --- Streamlit アプリ本体 ---
 st.set_page_config(layout="wide")
