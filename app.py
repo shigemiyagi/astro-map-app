@@ -90,17 +90,20 @@ WORLD_CITIES = {
 # --- 新しい計算ロジック ---
 
 def calculate_acg_lines_with_swisseph(birth_dt_jst, selected_planets):
-    """swissephを使用して正確なアストロカートグラフィのラインを計算する"""
+    """swissephを使用して正確なアストロカートグラフィーのラインを計算する"""
+    
+    # 修正点: 天体暦データファイルの場所を、アプリ内の'ephe'フォルダに設定
+    swe.set_ephe_path('./ephe')
     
     birth_dt_utc = birth_dt_jst - datetime.timedelta(hours=9)
     
     jd_utc, ret = swe.utc_to_jd(
         birth_dt_utc.year, birth_dt_utc.month, birth_dt_utc.day,
         birth_dt_utc.hour, birth_dt_utc.minute, birth_dt_utc.second,
-        swe.GREG_CAL # 修正点: SE_GREG_CAL -> GREG_CAL
+        swe.GREG_CAL
     )
     if ret != 0:
-        st.error("日付の変換に失敗しました。")
+        st.error("日付の変換に失敗しました。天体暦ファイルが'ephe'フォルダに正しく配置されているか確認してください。")
         return {}
 
     lines = {}
@@ -108,14 +111,12 @@ def calculate_acg_lines_with_swisseph(birth_dt_jst, selected_planets):
     
     planet_id_map = {p_info["id"]: p_name for p_name, p_info in PLANET_INFO.items() if p_name in selected_planets}
     
-    # 修正点: swe.SEFLG_SWIEPH -> swe.FLG_SWIEPH
     calc_flags = swe.FLG_SWIEPH
 
     for planet_id, planet_name in planet_id_map.items():
         ac_lons, dc_lons = [], []
         ac_lats, dc_lats = [], []
 
-        # 修正点: swe.SE_MC -> swe.MC, swe.SE_IC -> swe.IC
         res, lon_mc_arr, ret = swe.acg_pos(jd_utc, planet_id, 0, 0, swe.MC | calc_flags, 0)
         lon_mc = lon_mc_arr[0] if isinstance(lon_mc_arr, (list, tuple)) else lon_mc_arr
         
@@ -125,14 +126,12 @@ def calculate_acg_lines_with_swisseph(birth_dt_jst, selected_planets):
         lines[planet_name] = {"MC": {"lon": lon_mc}, "IC": {"lon": lon_ic}}
 
         for lat in latitudes:
-            # 修正点: swe.SE_RISE -> swe.RISE
             res_ac, lon_ac_arr, ret_ac = swe.acg_pos(jd_utc, planet_id, lat, 0, swe.RISE | calc_flags, 0)
             if res_ac == 0:
                 lon_ac = lon_ac_arr[0] if isinstance(lon_ac_arr, (list, tuple)) else lon_ac_arr
                 ac_lons.append(lon_ac)
                 ac_lats.append(lat)
             
-            # 修正点: swe.SE_SET -> swe.SET
             res_dc, lon_dc_arr, ret_dc = swe.acg_pos(jd_utc, planet_id, lat, 0, swe.SET | calc_flags, 0)
             if res_dc == 0:
                 lon_dc = lon_dc_arr[0] if isinstance(lon_dc_arr, (list, tuple)) else lon_dc_arr
