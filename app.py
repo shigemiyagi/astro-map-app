@@ -118,63 +118,64 @@ def calculate_acg_lines(planet_coords, lst_deg):
         lines[planet]["DC"] = {"lons": dc_lons, "lats": valid_lats}
     return lines
 
+# --- 修正点: 都市判定の関数。戻り値の形式を変更 ---
 def find_cities_in_bands(acg_lines, selected_planets):
-    cities_in_influence = defaultdict(list)
+    """
+    影響下の都市を判定し、惑星を行、アングルを列とする
+    ネストした辞書形式で結果を返す。
+    """
+    # { '太陽': {'AC': ['都市A'], 'DC': [], ...}, '月': ... } という形式
+    cities_by_planet_angle = {
+        planet: {angle: [] for angle in ["AC", "DC", "IC", "MC"]}
+        for planet in selected_planets
+    }
+    
     BAND_WIDTH = 5.0
     for city_name, (city_lat, city_lon) in WORLD_CITIES.items():
         for planet in selected_planets:
             if planet not in acg_lines: continue
             lines = acg_lines[planet]
-            planet_en = PLANET_INFO[planet]["en"]
+            
             for angle in ["MC", "IC"]:
                 line_data = lines.get(angle)
                 if not line_data or line_data.get("lon") is None: continue
                 center_lon = line_data["lon"]
                 lon_diff = abs(city_lon - center_lon)
                 if min(lon_diff, 360 - lon_diff) <= BAND_WIDTH:
-                    cities_in_influence[f"{planet_en}-{angle}"].append(city_name)
+                    cities_by_planet_angle[planet][angle].append(city_name)
+                    
             for angle in ["AC", "DC"]:
                 line_data = lines.get(angle)
                 if not line_data or not line_data.get("lats"): continue
                 center_lon_at_city_lat = np.interp(city_lat, line_data["lats"], line_data["lons"])
                 lon_diff = abs(city_lon - center_lon_at_city_lat)
                 if min(lon_diff, 360 - lon_diff) <= BAND_WIDTH:
-                    cities_in_influence[f"{planet_en}-{angle}"].append(city_name)
-    return cities_in_influence
+                    cities_by_planet_angle[planet][angle].append(city_name)
+                    
+    return cities_by_planet_angle
 
-# --- ここからが最終修正版の描画関数 ---
 
+# --- 描画関数 (変更なし) ---
 def plot_map_with_lines(acg_lines, selected_planets):
-    """Plotlyで線を描画する。データ型を厳密に処理し、エラーを回避する。"""
     fig = go.Figure()
-    
     fig.add_trace(go.Scattergeo(lon=[], lat=[], mode='lines', line=dict(width=1, color='gray'), showlegend=False))
-
     for planet_jp in selected_planets:
         if planet_jp not in acg_lines: continue
-        
         planet_en = PLANET_INFO[planet_jp]["en"]
         color = PLANET_INFO[planet_jp]["color"]
-        
         for angle in ["MC", "IC", "AC", "DC"]:
             line_data = acg_lines.get(planet_jp, {}).get(angle)
-            if not line_data:
-                continue
-
+            if not line_data: continue
             if angle in ["MC", "IC"]:
                 lon_val = line_data.get("lon")
-                if lon_val is None:
-                    continue
+                if lon_val is None: continue
                 lons = np.array([lon_val, lon_val], dtype=float)
                 lats = np.array([-85, 85], dtype=float)
-            else: # AC, DC
+            else:
                 lons_list = line_data.get("lons")
-                if not lons_list:
-                    continue
+                if not lons_list: continue
                 lons = np.array(lons_list, dtype=float)
                 lats = np.array(line_data.get("lats", []), dtype=float)
-
-            # 線の切れ目をNoneではなく、数値計算用のnp.nanで処理する
             if len(lons) > 1:
                 jumps = np.where(np.abs(np.diff(lons)) > 180)[0]
                 processed_lons = np.insert(lons, jumps + 1, np.nan)
@@ -182,19 +183,13 @@ def plot_map_with_lines(acg_lines, selected_planets):
             else:
                 processed_lons = lons
                 processed_lats = lats
-
             fig.add_trace(go.Scattergeo(
-                lon=processed_lons, lat=processed_lats,
-                mode='lines',
-                line=dict(width=2, color=color),
-                name=f'{planet_en}-{angle}',
-                hoverinfo='name',
-                connectgaps=False # np.nanの位置で線を確実に切断する
+                lon=processed_lons, lat=processed_lats, mode='lines',
+                line=dict(width=2, color=color), name=f'{planet_en}-{angle}',
+                hoverinfo='name', connectgaps=False
             ))
-
     fig.update_layout(
-        title_text='アストロカートグラフィーマップ',
-        showlegend=True,
+        title_text='アストロカートグラフィーマップ', showlegend=True,
         geo=dict(
             projection_type='natural earth', showland=True, landcolor='rgb(243, 243, 243)',
             showocean=True, oceancolor='rgb(217, 237, 247)',
@@ -203,9 +198,6 @@ def plot_map_with_lines(acg_lines, selected_planets):
         margin={"r":0,"t":40,"l":0,"b":0}, height=600
     )
     return fig
-
-# --- ここまでが新しい描画関数 ---
-
 
 # --- Streamlit アプリ本体 ---
 st.set_page_config(layout="wide")
@@ -263,15 +255,30 @@ if st.button('🗺️ 地図と都市リストを生成する'):
                     fig = plot_map_with_lines(acg_lines, selected_planets)
                     st.plotly_chart(fig, use_container_width=True)
 
+                    # --- 修正点: ここから都市リストの表示をテーブル形式に変更 ---
                     st.header("🌠 影響を受ける主要都市リスト（中心線から±5度の範囲）")
-                    cities_in_bands = find_cities_in_bands(acg_lines, selected_planets)
                     
-                    if not cities_in_bands:
-                        st.info("選択された影響線の近く（±5度）には、リストにある主要都市は含まれていませんでした。")
+                    cities_data = find_cities_in_bands(acg_lines, selected_planets)
+                    
+                    if not any(any(cities) for cities in cities_data.values()):
+                         st.info("選択された影響線の近く（±5度）には、リストにある主要都市は含まれていませんでした。")
                     else:
-                        for line_name, cities in sorted(cities_in_bands.items()):
-                            st.subheader(f"📍 {line_name} ライン")
-                            st.write(", ".join(sorted(cities)))
+                        # 辞書からPandas DataFrameを作成
+                        df = pd.DataFrame.from_dict(cities_data, orient='index')
+                        
+                        # 列の順序を固定
+                        df = df.reindex(columns=["AC", "DC", "IC", "MC"])
+                        
+                        # セル内のリストをカンマ区切りの文字列に変換
+                        def join_cities(cities):
+                            if isinstance(cities, list) and cities:
+                                return ", ".join(sorted(cities))
+                            return "" # 空のリストやデータがない場合は空文字列
+                        
+                        df = df.applymap(join_cities)
+
+                        # Streamlitでデータフレームを表示
+                        st.dataframe(df)
 
             except Exception as e:
                 st.error(f"エラーが発生しました: {e}")
