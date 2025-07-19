@@ -142,10 +142,10 @@ def find_cities_in_bands(acg_lines, selected_planets):
                     cities_in_influence[f"{planet_en}-{angle}"].append(city_name)
     return cities_in_influence
 
-# --- ここからが再修正された描画関数 ---
+# --- ここからが最終修正版の描画関数 ---
 
 def plot_map_with_lines(acg_lines, selected_planets):
-    """Plotlyで線を描画する。データが不完全でもエラーを起こさないように修正。"""
+    """Plotlyで線を描画する。データ型を厳密に処理し、エラーを回避する。"""
     fig = go.Figure()
     
     fig.add_trace(go.Scattergeo(lon=[], lat=[], mode='lines', line=dict(width=1, color='gray'), showlegend=False))
@@ -165,21 +165,20 @@ def plot_map_with_lines(acg_lines, selected_planets):
                 lon_val = line_data.get("lon")
                 if lon_val is None:
                     continue
-                # Pythonリストではなく、Numpy配列として作成
-                lons = np.array([lon_val, lon_val])
-                lats = np.array([-85, 85])
+                lons = np.array([lon_val, lon_val], dtype=float)
+                lats = np.array([-85, 85], dtype=float)
             else: # AC, DC
                 lons_list = line_data.get("lons")
                 if not lons_list:
                     continue
-                lons = np.array(lons_list)
-                lats = np.array(line_data.get("lats", []))
+                lons = np.array(lons_list, dtype=float)
+                lats = np.array(line_data.get("lats", []), dtype=float)
 
-            # lonsがNumpy配列であることが保証されているため、.astypeは不要で、np.diffは安全
+            # 線の切れ目をNoneではなく、数値計算用のnp.nanで処理する
             if len(lons) > 1:
                 jumps = np.where(np.abs(np.diff(lons)) > 180)[0]
-                processed_lons = np.insert(lons, jumps + 1, None)
-                processed_lats = np.insert(lats, jumps + 1, None)
+                processed_lons = np.insert(lons, jumps + 1, np.nan)
+                processed_lats = np.insert(lats, jumps + 1, np.nan)
             else:
                 processed_lons = lons
                 processed_lats = lats
@@ -189,7 +188,8 @@ def plot_map_with_lines(acg_lines, selected_planets):
                 mode='lines',
                 line=dict(width=2, color=color),
                 name=f'{planet_en}-{angle}',
-                hoverinfo='name'
+                hoverinfo='name',
+                connectgaps=False # np.nanの位置で線を確実に切断する
             ))
 
     fig.update_layout(
