@@ -5,31 +5,18 @@ import plotly.graph_objects as go
 import re
 from collections import defaultdict
 import datetime
-import swisseph as swe
 import os
+from skyfield.api import load, Topos # 修正点: skyfieldをインポート
 
 # --- 定数とデータ ---
 
-# 星座の開始度数（黄経）
-ZODIAC_OFFSETS = {
-    "牡羊座": 0, "ARIES": 0, "牡牛座": 30, "TAURUS": 30, "双子座": 60, "GEMINI": 60,
-    "蟹座": 90, "CANCER": 90, "獅子座": 120, "LEO": 120, "乙女座": 150, "VIRGO": 150,
-    "天秤座": 180, "LIBRA": 180, "蠍座": 210, "SCORPIO": 210, "射手座": 240, "SAGITTARIUS": 240,
-    "山羊座": 270, "CAPRICORN": 270, "水瓶座": 300, "AQUARIUS": 300, "魚座": 330, "PISCES": 330,
-}
-
-# 惑星の英語名、描画色、およびswissephでのID
+# 惑星の英語名、描画色
 PLANET_INFO = {
-    "太陽": {"en": "Sun", "color": "#FFD700", "id": swe.SUN},
-    "月": {"en": "Moon", "color": "#C0C0C0", "id": swe.MOON},
-    "水星": {"en": "Mercury", "color": "#8B4513", "id": swe.MERCURY},
-    "金星": {"en": "Venus", "color": "#FF69B4", "id": swe.VENUS},
-    "火星": {"en": "Mars", "color": "#FF4500", "id": swe.MARS},
-    "木星": {"en": "Jupiter", "color": "#32CD32", "id": swe.JUPITER},
-    "土星": {"en": "Saturn", "color": "#4682B4", "id": swe.SATURN},
-    "天王星": {"en": "Uranus", "color": "#00FFFF", "id": swe.URANUS},
-    "海王星": {"en": "Neptune", "color": "#0000FF", "id": swe.NEPTUNE},
-    "冥王星": {"en": "Pluto", "color": "#800080", "id": swe.PLUTO},
+    "太陽": {"en": "Sun", "color": "#FFD700"}, "月": {"en": "Moon", "color": "#C0C0C0"},
+    "水星": {"en": "Mercury", "color": "#8B4513"}, "金星": {"en": "Venus", "color": "#FF69B4"},
+    "火星": {"en": "Mars", "color": "#FF4500"}, "木星": {"en": "Jupiter", "color": "#32CD32"},
+    "土星": {"en": "Saturn", "color": "#4682B4"}, "天王星": {"en": "Uranus", "color": "#00FFFF"},
+    "海王星": {"en": "Neptune", "color": "#0000FF"}, "冥王星": {"en": "Pluto", "color": "#800080"},
 }
 
 # 都道府県のリストと県庁所在地の緯度経度
@@ -88,66 +75,77 @@ WORLD_CITIES = {
 }
 
 
-# --- 新しい計算ロジック ---
+# --- 修正点: 全面的に刷新した計算ロジック (skyfieldを使用) ---
+@st.cache_data
+def load_ephemeris():
+    """天体暦データをロードする（キャッシュして高速化）"""
+    return load('de421.bsp')
 
 def calculate_acg_lines(birth_dt_jst, selected_planets):
-    # 修正点: パス指定を最もシンプルな 'ephe' に変更
-    swe.set_ephe_path('ephe')
+    """skyfieldを使い、手動でアストロカートグラフィのラインを正確に計算する"""
+    eph = load_ephemeris()
+    earth = eph['earth']
     
-    birth_dt_utc = birth_dt_jst - datetime.timedelta(hours=9)
-    
-    try:
-        jd_ut, jd_et = swe.utc_to_jd(
-            birth_dt_utc.year, birth_dt_utc.month, birth_dt_utc.day,
-            birth_dt_utc.hour, birth_dt_utc.minute, birth_dt_utc.second,
-            swe.GREG_CAL
-        )
-    except Exception as e:
-        st.error(f"日付の変換中にエラーが発生しました: {e}")
-        st.error("これは通常、天体暦ファイルが見つからない場合に起こります。epheフォルダと、その中の.se1ファイルが正しくGitHubリポジトリにアップロードされているか、再度ご確認ください。")
-        return {}
+    # 惑星名とskyfieldオブジェクトのマッピング
+    planet_map = {
+        "太陽": eph['sun'], "月": eph['moon'], "水星": eph['mercury'],
+        "金星": eph['venus'], "火星": eph['mars'], "木星": eph['jupiter barycenter'],
+        "土星": eph['saturn barycenter'], "天王星": eph['uranus barycenter'],
+        "海王星": eph['neptune barycenter'], "冥王星": eph['pluto barycenter'],
+    }
 
-    gst = swe.sidtime(jd_ut)
+    ts = load.timescale()
+    t = ts.from_datetime(birth_dt_jst.replace(tzinfo=datetime.timezone(datetime.timedelta(hours=9))))
+    
+    gst_rad = t.gmst * (np.pi / 12) # GSTをラジアン単位で取得
 
     lines = {}
     latitudes = np.linspace(-85, 85, 150)
     
-    planet_id_map = {p_info["id"]: p_name for p_name, p_info in PLANET_INFO.items() if p_name in selected_planets}
-    
-    for planet_id, planet_name in planet_id_map.items():
-        pos_data, err_str = swe.calc_ut(jd_et, planet_id, swe.FLG_SWIEPH | swe.FLG_EQUATORIAL)
-        if err_str:
-            # もし個別の惑星で計算エラーが出た場合（通常は起こらない）
-            st.warning(f"{planet_name}の位置計算に失敗しました: {err_str}")
-            continue
+    for planet_name in selected_planets:
+        planet_obj = planet_map[planet_name]
+        
+        # 地心から見た惑星の赤道座標(赤経RA, 赤緯Dec)を取得
+        astrometric = earth.at(t).observe(planet_obj)
+        ra, dec, distance = astrometric.radec()
+        
+        ra_rad = ra.radians
+        dec_rad = dec.radians
 
-        ra, dec = pos_data[0], pos_data[1]
-
-        lon_mc = (ra - gst + 180) % 360 - 180
+        # MC/ICラインの計算
+        lon_mc_rad = ra_rad - gst_rad
+        lon_mc = np.degrees(lon_mc_rad)
+        lon_mc = (lon_mc + 180) % 360 - 180
         lon_ic = (lon_mc + 180 + 180) % 360 - 180
         lines[planet_name] = {"MC": {"lon": lon_mc}, "IC": {"lon": lon_ic}}
 
+        # AC/DCラインの計算
         ac_lons, dc_lons = [], []
         ac_lats, dc_lats = [], []
-        dec_rad = np.radians(dec)
+        
         for lat in latitudes:
             lat_rad = np.radians(lat)
             if abs(lat) >= 90.0: continue
+                
             cos_lha_val = -np.tan(dec_rad) * np.tan(lat_rad)
+            
             if -1 <= cos_lha_val <= 1:
-                lha = np.degrees(np.arccos(cos_lha_val))
-                lon_ac = ra - lha - gst
-                ac_lons.append((lon_ac + 180) % 360 - 180)
+                lha_rad = np.arccos(cos_lha_val)
+                
+                # AC (Rise): LST = RA - LHA -> Lon = RA - LHA - GST
+                lon_ac_rad = ra_rad - lha_rad - gst_rad
+                ac_lons.append((np.degrees(lon_ac_rad) + 180) % 360 - 180)
                 ac_lats.append(lat)
-                lon_dc = ra + lha - gst
-                dc_lons.append((lon_dc + 180) % 360 - 180)
+                
+                # DC (Set): LST = RA + LHA -> Lon = RA + LHA - GST
+                lon_dc_rad = ra_rad + lha_rad - gst_rad
+                dc_lons.append((np.degrees(lon_dc_rad) + 180) % 360 - 180)
                 dc_lats.append(lat)
+
         lines[planet_name]["AC"] = {"lons": ac_lons, "lats": ac_lats}
         lines[planet_name]["DC"] = {"lons": dc_lons, "lats": dc_lats}
-    
-    swe.close()
+        
     return lines
-
 
 # --- 変更なし (以降の関数) ---
 
@@ -273,8 +271,7 @@ if st.button('🗺️ 地図と都市リストを生成する'):
                 acg_lines = calculate_acg_lines(birth_dt_jst, selected_planets)
                 
                 if not acg_lines:
-                    # 計算関数の中でエラーが表示されるため、ここでは簡潔に
-                    st.warning("計算に失敗しました。上記のエラーメッセージをご確認ください。")
+                    st.warning("計算結果が空でした。エラーメッセージを確認するか、別の入力でお試しください。")
                 else:
                     fig = plot_map_with_lines(acg_lines, selected_planets)
                     st.plotly_chart(fig, use_container_width=True)
