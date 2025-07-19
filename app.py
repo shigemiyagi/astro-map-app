@@ -187,26 +187,29 @@ def plot_map_with_lines(acg_lines, selected_planets):
     )
     return fig
 
-# --- 新しい関数: データをマークダウン形式に変換 ---
+# --- 修正点: マークダウンテキストの結合ロジックを修正 ---
 def format_data_as_markdown(cities_data):
     """都市データを指定されたマークダウン形式の文字列に変換する"""
-    md_lines = ["# アストロカートグラフィで影響を受ける主要都市リスト"]
+    final_blocks = ["# アストロカートグラフィーで影響を受ける主要都市リスト"]
     
-    # 惑星の順序を固定するために、PLANET_INFOのキーの順でループする
     for planet in PLANET_INFO.keys():
         if planet in cities_data:
             planet_data = cities_data[planet]
-            # この惑星に一つでも都市があれば、惑星名を出力
             if any(planet_data.values()):
-                md_lines.append(f"## {planet}")
+                # 惑星ごとのテキストブロックを作成
+                planet_section = [f"## {planet}"]
                 for angle in ["AC", "DC", "IC", "MC"]:
                     cities = planet_data.get(angle, [])
                     if cities:
-                        md_lines.append(f"### {angle}")
-                        md_lines.append(", ".join(sorted(cities)))
+                        # 見出しと都市リストをそれぞれ追加
+                        planet_section.append(f"### {angle}")
+                        planet_section.append(", ".join(sorted(cities)))
+                
+                # 惑星ブロック内は1つの改行で結合
+                final_blocks.append("\n".join(planet_section))
                         
-    return "\n\n".join(md_lines)
-
+    # 最終的に各ブロックを2つの改行で結合
+    return "\n\n".join(final_blocks)
 
 # --- Streamlit アプリ本体 ---
 st.set_page_config(layout="wide")
@@ -270,7 +273,6 @@ if st.button('🗺️ 地図と都市リストを生成する'):
                     if not any(any(cities.values()) for cities in cities_data.values()):
                          st.info("選択された影響線の近く（±5度）には、リストにある主要都市は含まれていませんでした。")
                     else:
-                        # --- 表形式での表示 ---
                         df = pd.DataFrame.from_dict(cities_data, orient='index')
                         df = df.reindex(columns=["AC", "DC", "IC", "MC"])
                         def join_cities_html(cities):
@@ -286,12 +288,9 @@ if st.button('🗺️ 地図と都市リストを生成する'):
                         </style>""", unsafe_allow_html=True)
                         st.markdown(html_table, unsafe_allow_html=True)
 
-                        # --- 修正点: マークダウン形式での表示とコピー欄の設置 ---
-                        st.divider() #区切り線
+                        st.divider()
                         st.subheader("📋 マークダウン形式でコピー")
-                        
                         markdown_text = format_data_as_markdown(cities_data)
-                        
                         st.text_area(
                             "以下のテキストをコピーして、メモ帳やドキュメントに貼り付けてください。",
                             markdown_text,
