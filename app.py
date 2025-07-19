@@ -88,24 +88,23 @@ WORLD_CITIES = {
 }
 
 
-# --- 新しい計算ロジック ---
+# --- 修正点: 全面的に刷新した計算ロジック ---
 
-def calculate_acg_lines_with_swisseph(birth_dt_jst, selected_planets):
-    """swissephを使用して正確なアストロカートグラフィのラインを計算する"""
-    
+def calculate_acg_lines(birth_dt_jst, selected_planets):
+    """
+    pyswissephの基本関数を使い、手動でアストロカートグラフィのラインを正確に計算する。
+    """
     try:
-        # スクリプトの場所を基準にepheフォルダの絶対パスを作成
         script_dir = os.path.dirname(os.path.abspath(__file__))
         ephe_path = os.path.join(script_dir, 'ephe')
         swe.set_ephe_path(ephe_path)
     except NameError:
-        # Streamlitの一部環境で__file__が定義されていない場合のフォールバック
         swe.set_ephe_path('./ephe')
     
     birth_dt_utc = birth_dt_jst - datetime.timedelta(hours=9)
     
-    # 修正点: utc_to_jdは(JD_UT, JD_ET)のタプルを返す。エラーの場合は例外が発生する
     try:
+        # utc_to_jdは(JD_UT, JD_ET)のタプルを返す
         jd_ut, jd_et = swe.utc_to_jd(
             birth_dt_utc.year, birth_dt_utc.month, birth_dt_utc.day,
             birth_dt_utc.hour, birth_dt_utc.minute, birth_dt_utc.second,
@@ -115,45 +114,58 @@ def calculate_acg_lines_with_swisseph(birth_dt_jst, selected_planets):
         st.error(f"日付の変換に失敗しました: {e}")
         st.error("天体暦ファイルが'ephe'フォルダに正しく配置されているか、再度ご確認ください。")
         return {}
+    
+    # グリニッジ恒星時 (GST) を計算
+    gst = swe.sidtime(jd_ut)
 
     lines = {}
     latitudes = np.linspace(-85, 85, 150)
     
     planet_id_map = {p_info["id"]: p_name for p_name, p_info in PLANET_INFO.items() if p_name in selected_planets}
     
-    calc_flags = swe.FLG_SWIEPH
-
     for planet_id, planet_name in planet_id_map.items():
-        ac_lons, dc_lons = [], []
-        ac_lats, dc_lats = [], []
+        # 天体の赤道座標(赤経RA, 赤緯Dec)を取得
+        # calc_utは(経度,緯度,距離,経度速度,緯度速度,距離速度)のタプルとエラーメッセージを返す
+        pos_data, err_str = swe.calc_ut(jd_et, planet_id, swe.FLG_SWIEPH | swe.FLG_EQUATORIAL)
+        if err_str: continue # 計算失敗時はスキップ
 
-        # 計算にはより均等な天体時(Ephemeris Time)であるjd_etを使用
-        res, lon_mc_arr, err_str = swe.acg_pos(jd_et, planet_id, 0, 0, swe.MC | calc_flags, 0)
-        lon_mc = lon_mc_arr[0] if isinstance(lon_mc_arr, (list, tuple)) else lon_mc_arr
-        
-        res, lon_ic_arr, err_str = swe.acg_pos(jd_et, planet_id, 0, 0, swe.IC | calc_flags, 0)
-        lon_ic = lon_ic_arr[0] if isinstance(lon_ic_arr, (list, tuple)) else lon_ic_arr
+        ra, dec = pos_data[0], pos_data[1]
 
+        # MC/ICラインの計算
+        # MC: LST = RA -> GST + Lon = RA -> Lon = RA - GST
+        lon_mc = (ra - gst + 180) % 360 - 180
+        lon_ic = (lon_mc + 180 + 180) % 360 - 180
         lines[planet_name] = {"MC": {"lon": lon_mc}, "IC": {"lon": lon_ic}}
 
-        for lat in latitudes:
-            res_ac, lon_ac_arr, err_str = swe.acg_pos(jd_et, planet_id, lat, 0, swe.RISE | calc_flags, 0)
-            if res_ac == 0:
-                lon_ac = lon_ac_arr[0] if isinstance(lon_ac_arr, (list, tuple)) else lon_ac_arr
-                ac_lons.append(lon_ac)
-                ac_lats.append(lat)
-            
-            res_dc, lon_dc_arr, err_str = swe.acg_pos(jd_et, planet_id, lat, 0, swe.SET | calc_flags, 0)
-            if res_dc == 0:
-                lon_dc = lon_dc_arr[0] if isinstance(lon_dc_arr, (list, tuple)) else lon_dc_arr
-                dc_lons.append(lon_dc)
-                dc_lats.append(lat)
+        # AC/DCラインの計算
+        ac_lons, dc_lons = [], []
+        ac_lats, dc_lats = [], []
         
-        ac_lons_norm = [(lon + 180) % 360 - 180 for lon in ac_lons]
-        dc_lons_norm = [(lon + 180) % 360 - 180 for lon in dc_lons]
+        dec_rad = np.radians(dec)
+        for lat in latitudes:
+            lat_rad = np.radians(lat)
+            
+            # cos(LHA) = -tan(Dec) * tan(Lat)
+            # tan(90度)は無限大になるため、極に近い緯度は避ける
+            if abs(lat) >= 90.0: continue
+                
+            cos_lha_val = -np.tan(dec_rad) * np.tan(lat_rad)
+            
+            if -1 <= cos_lha_val <= 1:
+                lha = np.degrees(np.arccos(cos_lha_val))
+                
+                # AC: LST = RA - LHA -> Lon = RA - LHA - GST
+                lon_ac = ra - lha - gst
+                ac_lons.append((lon_ac + 180) % 360 - 180)
+                ac_lats.append(lat)
+                
+                # DC: LST = RA + LHA -> Lon = RA + LHA - GST
+                lon_dc = ra + lha - gst
+                dc_lons.append((lon_dc + 180) % 360 - 180)
+                dc_lats.append(lat)
 
-        lines[planet_name]["AC"] = {"lons": ac_lons_norm, "lats": ac_lats}
-        lines[planet_name]["DC"] = {"lons": dc_lons_norm, "lats": dc_lats}
+        lines[planet_name]["AC"] = {"lons": ac_lons, "lats": ac_lats}
+        lines[planet_name]["DC"] = {"lons": dc_lons, "lats": dc_lats}
     
     swe.close()
     return lines
@@ -280,7 +292,8 @@ if st.button('🗺️ 地図と都市リストを生成する'):
             try:
                 birth_dt_jst = datetime.datetime.combine(birth_date, birth_time)
                 
-                acg_lines = calculate_acg_lines_with_swisseph(birth_dt_jst, selected_planets)
+                # 修正点: 新しい計算関数を呼び出す
+                acg_lines = calculate_acg_lines(birth_dt_jst, selected_planets)
                 
                 if not acg_lines:
                     st.warning("計算結果が空でした。エラーメッセージを確認するか、別の入力でお試しください。")
