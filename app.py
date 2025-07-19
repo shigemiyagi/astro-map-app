@@ -6,7 +6,7 @@ import re
 from collections import defaultdict
 import datetime
 import swisseph as swe
-import os # 診断機能のためにosライブラリをインポート
+import os
 
 # --- 定数とデータ ---
 
@@ -91,18 +91,35 @@ WORLD_CITIES = {
 # --- 新しい計算ロジック ---
 
 def calculate_acg_lines_with_swisseph(birth_dt_jst, selected_planets):
-    swe.set_ephe_path('./ephe')
+    """swissephを使用して正確なアストロカートグラフィーのラインを計算する"""
+    
+    # 修正点1: スクリプトからの相対パスではなく、より確実な絶対パスを構築
+    try:
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        ephe_path = os.path.join(script_dir, 'ephe')
+        swe.set_ephe_path(ephe_path)
+    except Exception:
+        # __file__ が利用できない環境（例：インタラクティブなノートブック）のためのフォールバック
+        swe.set_ephe_path('./ephe')
+
     
     birth_dt_utc = birth_dt_jst - datetime.timedelta(hours=9)
     
-    jd_utc, ret = swe.utc_to_jd(
+    # 修正点2: swissephの戻り値を正しく処理する
+    # utc_to_jdは (ユリウス日のタプル, エラーメッセージ文字列) を返す
+    jd_tuple, err_str = swe.utc_to_jd(
         birth_dt_utc.year, birth_dt_utc.month, birth_dt_utc.day,
         birth_dt_utc.hour, birth_dt_utc.minute, birth_dt_utc.second,
         swe.GREG_CAL
     )
-    if ret != 0:
-        st.error("日付の変換に失敗しました。天体暦ファイルが'ephe'フォルダに正しく配置されているか確認してください。")
+    
+    # エラーメッセージ文字列が空でない場合、エラーとして処理
+    if err_str:
+        st.error(f"日付の変換に失敗しました: {err_str}")
+        st.error("天体暦ファイルが'ephe'フォルダに正しく配置されているか、再度ご確認ください。")
         return {}
+        
+    jd_utc = jd_tuple[0] # 計算にはUTを使用
 
     lines = {}
     latitudes = np.linspace(-85, 85, 150)
@@ -115,10 +132,10 @@ def calculate_acg_lines_with_swisseph(birth_dt_jst, selected_planets):
         ac_lons, dc_lons = [], []
         ac_lats, dc_lats = [], []
 
-        res, lon_mc_arr, ret = swe.acg_pos(jd_utc, planet_id, 0, 0, swe.MC | calc_flags, 0)
+        res, lon_mc_arr, err_str_mc = swe.acg_pos(jd_utc, planet_id, 0, 0, swe.MC | calc_flags, 0)
         lon_mc = lon_mc_arr[0] if isinstance(lon_mc_arr, (list, tuple)) else lon_mc_arr
         
-        res, lon_ic_arr, ret = swe.acg_pos(jd_utc, planet_id, 0, 0, swe.IC | calc_flags, 0)
+        res, lon_ic_arr, err_str_ic = swe.acg_pos(jd_utc, planet_id, 0, 0, swe.IC | calc_flags, 0)
         lon_ic = lon_ic_arr[0] if isinstance(lon_ic_arr, (list, tuple)) else lon_ic_arr
 
         lines[planet_name] = {"MC": {"lon": lon_mc}, "IC": {"lon": lon_ic}}
@@ -263,28 +280,9 @@ if st.button('🗺️ 地図と都市リストを生成する'):
     if not all([birth_date, birth_time, pref_name]):
         st.error("すべての鑑定情報を入力してください。")
     else:
+        # 診断機能は一度削除し、計算ロジックに集中します
         with st.spinner('正確な天文計算に基づき、地図と都市リストを生成しています...'):
             try:
-                # --- 修正点: 診断機能を追加 ---
-                ephe_dir = './ephe'
-                with st.expander("ファイルチェック（デバッグ用）"):
-                    st.write(f"天体暦データフォルダ '{ephe_dir}' の状態を確認します...")
-                    if os.path.isdir(ephe_dir):
-                        st.success(f"✅ フォルダ '{ephe_dir}' が見つかりました。")
-                        files_in_dir = os.listdir(ephe_dir)
-                        if files_in_dir:
-                            st.write("フォルダ内のファイル:")
-                            st.code('\n'.join(files_in_dir))
-                            if 'seas_18.se1' in files_in_dir:
-                                st.success("✅ 主要な天体暦ファイルが見つかりました。")
-                            else:
-                                st.error("🚨 主要な天体暦ファイル ('seas_18.se1' など) が見つかりません。")
-                        else:
-                            st.error(f"🚨 フォルダ '{ephe_dir}' は空です。")
-                    else:
-                        st.error(f"🚨 フォルダ '{ephe_dir}' が見つかりません。GitHubリポジトリにフォルダを追加してアップロードしてください。")
-                # --- 診断機能ここまで ---
-
                 birth_dt_jst = datetime.datetime.combine(birth_date, birth_time)
                 
                 acg_lines = calculate_acg_lines_with_swisseph(birth_dt_jst, selected_planets)
