@@ -88,35 +88,42 @@ WORLD_CITIES = {
 }
 
 
-# --- 修正点: 全面的に刷新した計算ロジック ---
+# --- 新しい計算ロジック ---
 
 def calculate_acg_lines(birth_dt_jst, selected_planets):
-    """
-    pyswissephの基本関数を使い、手動でアストロカートグラフィのラインを正確に計算する。
-    """
+    # --- 修正点: この関数にデバッグ機能を追加 ---
+    debug_messages = []
+    
     try:
         script_dir = os.path.dirname(os.path.abspath(__file__))
         ephe_path = os.path.join(script_dir, 'ephe')
+        debug_messages.append(f"1. 天体暦フォルダのパスを '{ephe_path}' に設定します。")
         swe.set_ephe_path(ephe_path)
     except NameError:
+        debug_messages.append("1. 絶対パスの設定に失敗したため、相対パス './ephe' を使用します。")
         swe.set_ephe_path('./ephe')
     
     birth_dt_utc = birth_dt_jst - datetime.timedelta(hours=9)
     
     try:
-        # utc_to_jdは(JD_UT, JD_ET)のタプルを返す
         jd_ut, jd_et = swe.utc_to_jd(
             birth_dt_utc.year, birth_dt_utc.month, birth_dt_utc.day,
             birth_dt_utc.hour, birth_dt_utc.minute, birth_dt_utc.second,
             swe.GREG_CAL
         )
+        debug_messages.append(f"2. 日付変換成功: ユリウス日(UT) = {jd_ut}")
     except Exception as e:
-        st.error(f"日付の変換に失敗しました: {e}")
-        st.error("天体暦ファイルが'ephe'フォルダに正しく配置されているか、再度ご確認ください。")
+        debug_messages.append(f"2. 日付変換でエラーが発生しました: {e}")
+        st.session_state['debug_messages'] = debug_messages
         return {}
-    
-    # グリニッジ恒星時 (GST) を計算
-    gst = swe.sidtime(jd_ut)
+
+    try:
+        gst = swe.sidtime(jd_ut)
+        debug_messages.append(f"3. 恒星時計算成功: GST = {gst}")
+    except Exception as e:
+        debug_messages.append(f"3. 恒星時(sidtime)の計算でエラーが発生しました: {e}")
+        st.session_state['debug_messages'] = debug_messages
+        return {}
 
     lines = {}
     latitudes = np.linspace(-85, 85, 150)
@@ -124,55 +131,41 @@ def calculate_acg_lines(birth_dt_jst, selected_planets):
     planet_id_map = {p_info["id"]: p_name for p_name, p_info in PLANET_INFO.items() if p_name in selected_planets}
     
     for planet_id, planet_name in planet_id_map.items():
-        # 天体の赤道座標(赤経RA, 赤緯Dec)を取得
-        # calc_utは(経度,緯度,距離,経度速度,緯度速度,距離速度)のタプルとエラーメッセージを返す
         pos_data, err_str = swe.calc_ut(jd_et, planet_id, swe.FLG_SWIEPH | swe.FLG_EQUATORIAL)
-        if err_str: continue # 計算失敗時はスキップ
+        if err_str:
+            debug_messages.append(f"4. {planet_name}の位置計算に失敗: {err_str}")
+            continue
+        debug_messages.append(f"4. {planet_name}の位置計算成功。")
 
         ra, dec = pos_data[0], pos_data[1]
-
-        # MC/ICラインの計算
-        # MC: LST = RA -> GST + Lon = RA -> Lon = RA - GST
         lon_mc = (ra - gst + 180) % 360 - 180
         lon_ic = (lon_mc + 180 + 180) % 360 - 180
         lines[planet_name] = {"MC": {"lon": lon_mc}, "IC": {"lon": lon_ic}}
 
-        # AC/DCラインの計算
         ac_lons, dc_lons = [], []
         ac_lats, dc_lats = [], []
-        
         dec_rad = np.radians(dec)
         for lat in latitudes:
             lat_rad = np.radians(lat)
-            
-            # cos(LHA) = -tan(Dec) * tan(Lat)
-            # tan(90度)は無限大になるため、極に近い緯度は避ける
             if abs(lat) >= 90.0: continue
-                
             cos_lha_val = -np.tan(dec_rad) * np.tan(lat_rad)
-            
             if -1 <= cos_lha_val <= 1:
                 lha = np.degrees(np.arccos(cos_lha_val))
-                
-                # AC: LST = RA - LHA -> Lon = RA - LHA - GST
                 lon_ac = ra - lha - gst
                 ac_lons.append((lon_ac + 180) % 360 - 180)
                 ac_lats.append(lat)
-                
-                # DC: LST = RA + LHA -> Lon = RA + LHA - GST
                 lon_dc = ra + lha - gst
                 dc_lons.append((lon_dc + 180) % 360 - 180)
                 dc_lats.append(lat)
-
         lines[planet_name]["AC"] = {"lons": ac_lons, "lats": ac_lats}
         lines[planet_name]["DC"] = {"lons": dc_lons, "lats": dc_lats}
     
     swe.close()
+    st.session_state['debug_messages'] = debug_messages
     return lines
 
 
 # --- 変更なし (以降の関数) ---
-
 def find_cities_in_bands(acg_lines, selected_planets):
     cities_by_planet_angle = {
         planet: {angle: [] for angle in ["AC", "DC", "IC", "MC"]}
@@ -292,18 +285,20 @@ if st.button('🗺️ 地図と都市リストを生成する'):
             try:
                 birth_dt_jst = datetime.datetime.combine(birth_date, birth_time)
                 
-                # 修正点: 新しい計算関数を呼び出す
                 acg_lines = calculate_acg_lines(birth_dt_jst, selected_planets)
                 
+                # --- 修正点: デバッグ情報を表示 ---
+                if 'debug_messages' in st.session_state:
+                    with st.expander("詳細な計算ログ（デバッグ用）"):
+                        st.write(st.session_state['debug_messages'])
+
                 if not acg_lines:
                     st.warning("計算結果が空でした。エラーメッセージを確認するか、別の入力でお試しください。")
                 else:
                     fig = plot_map_with_lines(acg_lines, selected_planets)
                     st.plotly_chart(fig, use_container_width=True)
-
                     st.header("🌠 影響を受ける主要都市リスト（中心線から±5度の範囲）")
                     cities_data = find_cities_in_bands(acg_lines, selected_planets)
-                    
                     if not any(any(cities.values()) for cities in cities_data.values()):
                          st.info("選択された影響線の近く（±5度）には、リストにある主要都市は含まれていませんでした。")
                     else:
@@ -321,7 +316,6 @@ if st.button('🗺️ 地図と都市リストを生成する'):
                             table.dataframe th { background-color: #f2f2f2; }
                         </style>""", unsafe_allow_html=True)
                         st.markdown(html_table, unsafe_allow_html=True)
-
                         st.divider()
                         st.subheader("📋 マークダウン形式でコピー")
                         markdown_text = format_data_as_markdown(cities_data)
@@ -330,7 +324,6 @@ if st.button('🗺️ 地図と都市リストを生成する'):
                             markdown_text,
                             height=300
                         )
-
             except Exception as e:
                 st.error(f"エラーが発生しました: {e}")
                 st.error("入力データの形式が正しいか、もう一度確認してください。")
