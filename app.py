@@ -4,24 +4,43 @@ import numpy as np
 import plotly.graph_objects as go
 import re
 from collections import defaultdict
+import datetime
+import swisseph as swe # 変更点
 
 # --- 定数とデータ ---
 
-# 星座の開始度数（黄経）
-ZODIAC_OFFSETS = {
-    "牡羊座": 0, "ARIES": 0, "牡牛座": 30, "TAURUS": 30, "双子座": 60, "GEMINI": 60,
-    "蟹座": 90, "CANCER": 90, "獅子座": 120, "LEO": 120, "乙女座": 150, "VIRGO": 150,
-    "天秤座": 180, "LIBRA": 180, "蠍座": 210, "SCORPIO": 210, "射手座": 240, "SAGITTARIUS": 240,
-    "山羊座": 270, "CAPRICORN": 270, "水瓶座": 300, "AQUARIUS": 300, "魚座": 330, "PISCES": 330,
+# 惑星の英語名、描画色、およびswissephでのID
+PLANET_INFO = {
+    "太陽": {"en": "Sun", "color": "#FFD700", "id": swe.SUN},
+    "月": {"en": "Moon", "color": "#C0C0C0", "id": swe.MOON},
+    "水星": {"en": "Mercury", "color": "#8B4513", "id": swe.MERCURY},
+    "金星": {"en": "Venus", "color": "#FF69B4", "id": swe.VENUS},
+    "火星": {"en": "Mars", "color": "#FF4500", "id": swe.MARS},
+    "木星": {"en": "Jupiter", "color": "#32CD32", "id": swe.JUPITER},
+    "土星": {"en": "Saturn", "color": "#4682B4", "id": swe.SATURN},
+    "天王星": {"en": "Uranus", "color": "#00FFFF", "id": swe.URANUS},
+    "海王星": {"en": "Neptune", "color": "#0000FF", "id": swe.NEPTUNE},
+    "冥王星": {"en": "Pluto", "color": "#800080", "id": swe.PLUTO},
 }
 
-# 惑星の英語名と描画色
-PLANET_INFO = {
-    "太陽": {"en": "Sun", "color": "#FFD700"}, "月": {"en": "Moon", "color": "#C0C0C0"},
-    "水星": {"en": "Mercury", "color": "#8B4513"}, "金星": {"en": "Venus", "color": "#FF69B4"},
-    "火星": {"en": "Mars", "color": "#FF4500"}, "木星": {"en": "Jupiter", "color": "#32CD32"},
-    "土星": {"en": "Saturn", "color": "#4682B4"}, "天王星": {"en": "Uranus", "color": "#00FFFF"},
-    "海王星": {"en": "Neptune", "color": "#0000FF"}, "冥王星": {"en": "Pluto", "color": "#800080"},
+# 変更点: 都道府県のリストと県庁所在地の緯度経度
+JP_PREFECTURES = {
+    '北海道': (43.06417, 141.34694), '青森県': (40.82444, 140.74000), '岩手県': (39.70361, 141.15250),
+    '宮城県': (38.26889, 140.87194), '秋田県': (39.71861, 140.10250), '山形県': (38.24056, 140.36333),
+    '福島県': (37.75000, 140.46778), '茨城県': (36.34139, 140.44667), '栃木県': (36.56583, 139.88361),
+    '群馬県': (36.39111, 139.06083), '埼玉県': (35.86139, 139.64556), '千葉県': (35.60472, 140.12333),
+    '東京都': (35.68944, 139.69167), '神奈川県': (35.44778, 139.64250), '新潟県': (37.90222, 139.02361),
+    '富山県': (36.69528, 137.21139), '石川県': (36.59444, 136.62556), '福井県': (36.06528, 136.22194),
+    '山梨県': (35.66389, 138.56833), '長野県': (36.65139, 138.18111), '岐阜県': (35.42306, 136.72222),
+    '静岡県': (34.97694, 138.38306), '愛知県': (35.18028, 136.90667), '三重県': (34.73028, 136.50861),
+    '滋賀県': (35.00444, 135.86833), '京都府': (35.02139, 135.75556), '大阪府': (34.68639, 135.52000),
+    '兵庫県': (34.69139, 135.18306), '奈良県': (34.68528, 135.83278), '和歌山県': (34.22611, 135.16750),
+    '鳥取県': (35.50361, 134.23833), '島根県': (35.47222, 133.05056), '岡山県': (34.66167, 133.93500),
+    '広島県': (34.39639, 132.45944), '山口県': (34.18583, 131.47139), '徳島県': (34.06583, 134.55944),
+    '香川県': (34.34028, 134.04333), '愛媛県': (33.84167, 132.76611), '高知県': (33.55972, 133.53111),
+    '福岡県': (33.60639, 130.41806), '佐賀県': (33.26389, 130.30167), '長崎県': (32.74472, 129.87361),
+    '熊本県': (32.78972, 130.74167), '大分県': (33.23806, 131.61250), '宮崎県': (31.91111, 131.42389),
+    '鹿児島県': (31.56028, 130.55806), '沖縄県': (26.21250, 127.68111)
 }
 
 # 世界の有名都市リスト（緯度経度）
@@ -60,63 +79,72 @@ WORLD_CITIES = {
 }
 
 
-# --- 計算関数 (変更なし) ---
-def parse_natal_data(text_data):
-    planet_data = {}
-    lines = text_data.split('\n')
-    pattern = re.compile(r"(\S+)\s*:\s*(\S+座)\s*([\d\.]+)\s*度")
-    for line in lines:
-        match = pattern.search(line)
-        if match:
-            planet_name_jp = match.group(1).strip()
-            if planet_name_jp in PLANET_INFO or planet_name_jp == "MC":
-                planet_data[planet_name_jp] = {"sign": match.group(2).strip(), "degree": float(match.group(3))}
-    return planet_data
+# --- 変更点: ここから新しい計算ロジック ---
 
-def zodiac_to_longitude(sign, degree):
-    return ZODIAC_OFFSETS.get(sign, 0) + degree
+def calculate_acg_lines_with_swisseph(birth_dt_jst, birth_lon, birth_lat, selected_planets):
+    """swissephを使用して正確なアストロカートグラフィのラインを計算する"""
+    
+    # タイムゾーンをJST（+9時間）として、UTCに変換
+    birth_dt_utc = birth_dt_jst - datetime.timedelta(hours=9)
+    
+    # UTC日時をユリウス日に変換
+    jd_utc, ret = swe.utc_to_jd(
+        birth_dt_utc.year, birth_dt_utc.month, birth_dt_utc.day,
+        birth_dt_utc.hour, birth_dt_utc.minute, birth_dt_utc.second,
+        1 # Gregorian calendar
+    )
+    if ret != 0:
+        st.error("日付の変換に失敗しました。")
+        return {}
 
-def ecliptic_to_equatorial(ecl_lon_deg, obliquity_deg=23.439281):
-    ecl_lon_rad = np.radians(ecl_lon_deg)
-    obliquity_rad = np.radians(obliquity_deg)
-    sin_dec = np.sin(ecl_lon_rad) * np.sin(obliquity_rad)
-    dec_rad = np.arcsin(sin_dec)
-    cos_ra = np.cos(ecl_lon_rad) / np.cos(dec_rad)
-    sin_ra = (np.sin(ecl_lon_rad) * np.cos(obliquity_rad)) / np.cos(dec_rad)
-    ra_rad = np.arctan2(sin_ra, cos_ra)
-    if ra_rad < 0:
-        ra_rad += 2 * np.pi
-    return np.degrees(ra_rad), np.degrees(dec_rad)
+    # Swiss Ephemerisのデータパスを設定（多くの場合、ライブラリが自動でパスを見つけます）
+    try:
+        swe.set_ephe_path('/path/to/your/ephemeris/files') # 必要に応じてパスを修正
+    except Exception as e:
+        # パス設定が失敗しても、多くの場合デフォルトで動作するため処理を続行
+        pass
 
-def calculate_acg_lines(planet_coords, lst_deg):
     lines = {}
     latitudes = np.linspace(-85, 85, 150)
-    for planet, coords in planet_coords.items():
-        ra_deg, dec_deg = coords["ra"], coords["dec"]
-        ra_rad, dec_rad = np.radians(ra_deg), np.radians(dec_deg)
-        lst_rad = np.radians(lst_deg)
-        
-        lon_mc = (ra_deg - lst_deg + 180) % 360 - 180
-        lon_ic = (lon_mc + 180 + 180) % 360 - 180
-        
-        lines[planet] = {"MC": {"lon": lon_mc}, "IC": {"lon": lon_ic}}
-        
+    
+    # 惑星IDと日本語名の対応辞書を作成
+    planet_id_map = {p_info["id"]: p_name for p_name, p_info in PLANET_INFO.items() if p_name in selected_planets}
+    
+    for planet_id, planet_name in planet_id_map.items():
         ac_lons, dc_lons = [], []
-        valid_lats = []
-        for lat_deg in latitudes:
-            lat_rad = np.radians(lat_deg)
-            cos_ha_numerator = -np.tan(dec_rad) * np.tan(lat_rad)
-            if abs(cos_ha_numerator) <= 1:
-                ha_rad = np.arccos(cos_ha_numerator)
-                lon_ac_rad = lst_rad - ra_rad - ha_rad
-                lon_dc_rad = lst_rad - ra_rad + ha_rad
-                ac_lons.append((np.degrees(lon_ac_rad) + 180) % 360 - 180)
-                dc_lons.append((np.degrees(lon_dc_rad) + 180) % 360 - 180)
-                valid_lats.append(lat_deg)
+        ac_lats, dc_lats = [], []
 
-        lines[planet]["AC"] = {"lons": ac_lons, "lats": valid_lats}
-        lines[planet]["DC"] = {"lons": dc_lons, "lats": valid_lats}
+        # MCとICの経度を計算 (緯度0度で計算すれば、どの緯度でも同じ経度になる)
+        res, lon_mc, ret = swe.acg_pos(jd_utc, planet_id, 0, 0, swe.SE_MC | swe.SEFLG_SWIEPH, 0)
+        res, lon_ic, ret = swe.acg_pos(jd_utc, planet_id, 0, 0, swe.SE_IC | swe.SEFLG_SWIEPH, 0)
+
+        lines[planet_name] = {"MC": {"lon": lon_mc}, "IC": {"lon": lon_ic}}
+
+        # 各緯度に対してACとDCの経度を計算
+        for lat in latitudes:
+            # AC (Rise)
+            res_ac, lon_ac, ret_ac = swe.acg_pos(jd_utc, planet_id, lat, 0, swe.SE_RISE | swe.SEFLG_SWIEPH, 0)
+            if res_ac == 0:
+                ac_lons.append(lon_ac)
+                ac_lats.append(lat)
+            
+            # DC (Set)
+            res_dc, lon_dc, ret_dc = swe.acg_pos(jd_utc, planet_id, lat, 0, swe.SE_SET | swe.SEFLG_SWIEPH, 0)
+            if res_dc == 0:
+                dc_lons.append(lon_dc)
+                dc_lats.append(lat)
+        
+        # 経度を-180から180の範囲に正規化
+        ac_lons_norm = [(lon + 180) % 360 - 180 for lon in ac_lons]
+        dc_lons_norm = [(lon + 180) % 360 - 180 for lon in dc_lons]
+
+        lines[planet_name]["AC"] = {"lons": ac_lons_norm, "lats": ac_lats}
+        lines[planet_name]["DC"] = {"lons": dc_lons_norm, "lats": dc_lats}
+
     return lines
+
+
+# --- 変更なし (ただし、この後のコードは新しいacg_linesの形式で動作) ---
 
 def find_cities_in_bands(acg_lines, selected_planets):
     cities_by_planet_angle = {
@@ -187,51 +215,53 @@ def plot_map_with_lines(acg_lines, selected_planets):
     )
     return fig
 
-# --- 修正点: マークダウンテキストの結合ロジックを修正 ---
 def format_data_as_markdown(cities_data):
-    """都市データを指定されたマークダウン形式の文字列に変換する"""
-    final_blocks = ["# アストロカートグラフィーで影響を受ける主要都市リスト"]
-    
+    final_blocks = ["# アストロカートグラフィで影響を受ける主要都市リスト"]
     for planet in PLANET_INFO.keys():
         if planet in cities_data:
             planet_data = cities_data[planet]
             if any(planet_data.values()):
-                # 惑星ごとのテキストブロックを作成
                 planet_section = [f"## {planet}"]
                 for angle in ["AC", "DC", "IC", "MC"]:
                     cities = planet_data.get(angle, [])
                     if cities:
-                        # 見出しと都市リストをそれぞれ追加
                         planet_section.append(f"### {angle}")
                         planet_section.append(", ".join(sorted(cities)))
-                
-                # 惑星ブロック内は1つの改行で結合
                 final_blocks.append("\n".join(planet_section))
-                        
-    # 最終的に各ブロックを2つの改行で結合
     return "\n\n".join(final_blocks)
 
 # --- Streamlit アプリ本体 ---
 st.set_page_config(layout="wide")
 st.title('AstroCartography Map Generator 🗺️')
 
-sample_data = """
-🪐 ## ネイタルチャート ##
-太陽          : 山羊座   3.64度     (第7ハウス)
-月           : 水瓶座  28.81度     (第9ハウス)
-水星          : 山羊座  22.60度     (第8ハウス)
-金星          : 水瓶座  18.39度     (第9ハウス)
-火星          : 射手座  25.00度     (第7ハウス)
-木星          : 牡牛座  21.94度 (R) (第12ハウス)
-土星          : 獅子座  16.19度 (R) (第3ハウス)
-天王星         : 蠍座   10.61度     (第6ハウス)
-海王星         : 射手座  14.42度     (第6ハウス)
-冥王星         : 天秤座  14.05度     (第5ハウス)
-MC          : 魚座    0.81度     (第10ハウス)
-"""
+# --- 変更点: ここから入力項目を刷新 ---
+st.header("1. 鑑定対象者の情報を入力")
 
-st.header("1. ネイタルデータを入力")
-user_input = st.text_area("鑑定対象者のネイタルデータを以下に貼り付けてください。", sample_data, height=300)
+# 3つのカラムを作成して入力を横に並べる
+col1, col2, col3 = st.columns(3)
+
+with col1:
+    birth_date = st.date_input(
+        "生年月日",
+        datetime.date(2000, 1, 1),
+        min_value=datetime.date(1930, 1, 1),
+        max_value=datetime.date.today()
+    )
+
+with col2:
+    birth_time = st.time_input(
+        "出生時刻",
+        datetime.time(12, 0)
+    )
+
+with col3:
+    pref_name = st.selectbox(
+        "出生地（都道府県）",
+        list(JP_PREFECTURES.keys()),
+        index=12 # 東京都をデフォルトに
+    )
+# --- 入力項目の変更ここまで ---
+
 
 st.header("2. 描画する天体を選択")
 available_planets = list(PLANET_INFO.keys())
@@ -243,27 +273,25 @@ selected_planets = st.multiselect(
 )
 
 if st.button('🗺️ 地図と都市リストを生成する'):
-    if not user_input or not selected_planets:
-        st.error("データ入力と天体選択の両方が必要です。")
+    if not all([birth_date, birth_time, pref_name]):
+        st.error("すべての鑑定情報を入力してください。")
     else:
-        with st.spinner('データを解析し、地図と都市リストを生成しています...'):
+        with st.spinner('正確な天文計算に基づき、地図と都市リストを生成しています...'):
             try:
-                parsed_data = parse_natal_data(user_input)
-                if "MC" not in parsed_data:
-                    st.error("エラー: データからMC（天頂）が見つかりませんでした。")
-                else:
-                    mc_lon = zodiac_to_longitude(parsed_data["MC"]["sign"], parsed_data["MC"]["degree"])
-                    lst_deg, _ = ecliptic_to_equatorial(mc_lon)
-                    
-                    planet_coords = {}
-                    for planet, data in parsed_data.items():
-                        if planet in PLANET_INFO:
-                            ecl_lon = zodiac_to_longitude(data["sign"], data["degree"])
-                            ra, dec = ecliptic_to_equatorial(ecl_lon)
-                            planet_coords[planet] = {"ra": ra, "dec": dec}
+                # --- 変更点: ここから計算ロジックの呼び出しを刷新 ---
+                
+                # 1. 入力データから計算用の値を取得
+                birth_dt_jst = datetime.datetime.combine(birth_date, birth_time)
+                birth_lat, birth_lon = JP_PREFECTURES[pref_name]
 
-                    acg_lines = calculate_acg_lines(planet_coords, lst_deg)
-                    
+                # 2. swissephでACGラインを計算
+                acg_lines = calculate_acg_lines_with_swisseph(birth_dt_jst, birth_lon, birth_lat, selected_planets)
+                
+                # --- 計算ロジックの呼び出し変更ここまで (以降は変更なし) ---
+                
+                if not acg_lines:
+                    st.error("計算に失敗しました。入力値を確認してください。")
+                else:
                     fig = plot_map_with_lines(acg_lines, selected_planets)
                     st.plotly_chart(fig, use_container_width=True)
 
