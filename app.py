@@ -87,52 +87,53 @@ WORLD_CITIES = {
 }
 
 
-# --- 修正点: 新しい計算ロジック ---
+# --- 新しい計算ロジック ---
 
 def calculate_acg_lines_with_swisseph(birth_dt_jst, selected_planets):
     """swissephを使用して正確なアストロカートグラフィのラインを計算する"""
     
-    # タイムゾーンをJST（+9時間）として、UTCに変換
     birth_dt_utc = birth_dt_jst - datetime.timedelta(hours=9)
     
-    # UTC日時をユリウス日に変換
-    # swe.utc_to_jdは(tjd, ierr)のタプルを返すため、2つの変数で受け取る
     jd_utc, ret = swe.utc_to_jd(
         birth_dt_utc.year, birth_dt_utc.month, birth_dt_utc.day,
         birth_dt_utc.hour, birth_dt_utc.minute, birth_dt_utc.second,
-        swe.SE_GREG_CAL # グレゴリオ暦を指定
+        swe.GREG_CAL # 修正点: SE_GREG_CAL -> GREG_CAL
     )
     if ret != 0:
         st.error("日付の変換に失敗しました。")
         return {}
-
-    # 修正点: 不要なパス設定を削除。ライブラリのデフォルトパスを使用させる。
 
     lines = {}
     latitudes = np.linspace(-85, 85, 150)
     
     planet_id_map = {p_info["id"]: p_name for p_name, p_info in PLANET_INFO.items() if p_name in selected_planets}
     
+    # 修正点: swe.SEFLG_SWIEPH -> swe.FLG_SWIEPH
+    calc_flags = swe.FLG_SWIEPH
+
     for planet_id, planet_name in planet_id_map.items():
         ac_lons, dc_lons = [], []
         ac_lats, dc_lats = [], []
 
-        res, lon_mc_arr, ret = swe.acg_pos(jd_utc, planet_id, 0, 0, swe.SE_MC | swe.SEFLG_SWIEPH, 0)
+        # 修正点: swe.SE_MC -> swe.MC, swe.SE_IC -> swe.IC
+        res, lon_mc_arr, ret = swe.acg_pos(jd_utc, planet_id, 0, 0, swe.MC | calc_flags, 0)
         lon_mc = lon_mc_arr[0] if isinstance(lon_mc_arr, (list, tuple)) else lon_mc_arr
         
-        res, lon_ic_arr, ret = swe.acg_pos(jd_utc, planet_id, 0, 0, swe.SE_IC | swe.SEFLG_SWIEPH, 0)
+        res, lon_ic_arr, ret = swe.acg_pos(jd_utc, planet_id, 0, 0, swe.IC | calc_flags, 0)
         lon_ic = lon_ic_arr[0] if isinstance(lon_ic_arr, (list, tuple)) else lon_ic_arr
 
         lines[planet_name] = {"MC": {"lon": lon_mc}, "IC": {"lon": lon_ic}}
 
         for lat in latitudes:
-            res_ac, lon_ac_arr, ret_ac = swe.acg_pos(jd_utc, planet_id, lat, 0, swe.SE_RISE | swe.SEFLG_SWIEPH, 0)
+            # 修正点: swe.SE_RISE -> swe.RISE
+            res_ac, lon_ac_arr, ret_ac = swe.acg_pos(jd_utc, planet_id, lat, 0, swe.RISE | calc_flags, 0)
             if res_ac == 0:
                 lon_ac = lon_ac_arr[0] if isinstance(lon_ac_arr, (list, tuple)) else lon_ac_arr
                 ac_lons.append(lon_ac)
                 ac_lats.append(lat)
             
-            res_dc, lon_dc_arr, ret_dc = swe.acg_pos(jd_utc, planet_id, lat, 0, swe.SE_SET | swe.SEFLG_SWIEPH, 0)
+            # 修正点: swe.SE_SET -> swe.SET
+            res_dc, lon_dc_arr, ret_dc = swe.acg_pos(jd_utc, planet_id, lat, 0, swe.SET | calc_flags, 0)
             if res_dc == 0:
                 lon_dc = lon_dc_arr[0] if isinstance(lon_dc_arr, (list, tuple)) else lon_dc_arr
                 dc_lons.append(lon_dc)
@@ -144,7 +145,7 @@ def calculate_acg_lines_with_swisseph(birth_dt_jst, selected_planets):
         lines[planet_name]["AC"] = {"lons": ac_lons_norm, "lats": ac_lats}
         lines[planet_name]["DC"] = {"lons": dc_lons_norm, "lats": dc_lats}
     
-    swe.close() # 計算後にファイルを閉じる
+    swe.close()
     return lines
 
 
@@ -269,12 +270,10 @@ if st.button('🗺️ 地図と都市リストを生成する'):
             try:
                 birth_dt_jst = datetime.datetime.combine(birth_date, birth_time)
                 
-                # 変更点: 新しい計算関数を呼び出す
                 acg_lines = calculate_acg_lines_with_swisseph(birth_dt_jst, selected_planets)
                 
                 if not acg_lines:
-                    # 計算関数内でエラーが表示されるため、ここでは何もしないか、汎用的なメッセージを表示
-                    pass
+                    st.warning("計算結果が空でした。エラーメッセージを確認するか、別の入力でお試しください。")
                 else:
                     fig = plot_map_with_lines(acg_lines, selected_planets)
                     st.plotly_chart(fig, use_container_width=True)
