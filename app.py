@@ -248,47 +248,44 @@ if st.button('🗺️ 地図と都市リストを生成する'):
                     
                     cities_data = find_cities_in_bands(acg_lines, selected_planets)
                     
+                    # any(cities.values())で辞書内のリストが空でないかチェック
                     if not any(any(cities.values()) for cities in cities_data.values()):
                          st.info("選択された影響線の近く（±5度）には、リストにある主要都市は含まれていませんでした。")
                     else:
                         df = pd.DataFrame.from_dict(cities_data, orient='index')
                         df = df.reindex(columns=["AC", "DC", "IC", "MC"])
                         
-                        # セル内の都市リストをHTMLの改行タグ<br>で連結する
                         def join_cities_html(cities):
                             if isinstance(cities, list) and cities:
                                 return "<br>".join(sorted(cities))
                             return ""
                         
-                        df = df.applymap(join_cities_html)
+                        df_html = df.applymap(join_cities_html)
 
-                        # Pandas DataFrameをHTMLに変換
-                        # escape=Falseにすることで<br>タグがそのままHTMLとして出力される
-                        html = df.to_html(escape=False, border=0, classes=["city-table"])
+                        html_table = df_html.to_html(escape=False, index=True, border=0, header=True)
 
-                        # CSSでテーブルのスタイルを定義し、st.markdownで表示
-                        st.markdown(
-                            f"""
-                            <style>
-                                .city-table {{
-                                    width: 100%;
-                                    border-collapse: collapse;
-                                }}
-                                .city-table th, .city-table td {{
-                                    border: 1px solid #e1e1e1;
-                                    padding: 8px;
-                                    text-align: left;
-                                    vertical-align: top;
-                                    word-wrap: break-word; /* セル内での改行を強制 */
-                                }}
-                                .city-table th {{
-                                    background-color: #f2f2f2;
-                                }}
-                            </style>
-                            {html}
-                            """,
-                            unsafe_allow_html=True
-                        )
+                        # スタイル定義とテーブルHTMLを別々のst.markdownで呼び出す
+                        st.markdown("""
+                        <style>
+                            table.dataframe {
+                                width: 100% !important;
+                                border-collapse: collapse;
+                            }
+                            table.dataframe th, table.dataframe td {
+                                border: 1px solid #e1e1e1;
+                                padding: 8px;
+                                text-align: left;
+                                vertical-align: top;
+                                white-space: normal; /* セル内での改行を有効にする */
+                                word-wrap: break-word; /* 長い単語でも改行する */
+                            }
+                            table.dataframe th {
+                                background-color: #f2f2f2;
+                            }
+                        </style>
+                        """, unsafe_allow_html=True)
+                        
+                        st.markdown(html_table, unsafe_allow_html=True)
 
             except Exception as e:
                 st.error(f"エラーが発生しました: {e}")
