@@ -6,6 +6,7 @@ import re
 from collections import defaultdict
 import datetime
 import swisseph as swe
+import os # 診断機能のためにosライブラリをインポート
 
 # --- 定数とデータ ---
 
@@ -90,9 +91,6 @@ WORLD_CITIES = {
 # --- 新しい計算ロジック ---
 
 def calculate_acg_lines_with_swisseph(birth_dt_jst, selected_planets):
-    """swissephを使用して正確なアストロカートグラフィーのラインを計算する"""
-    
-    # 修正点: 天体暦データファイルの場所を、アプリ内の'ephe'フォルダに設定
     swe.set_ephe_path('./ephe')
     
     birth_dt_utc = birth_dt_jst - datetime.timedelta(hours=9)
@@ -267,6 +265,26 @@ if st.button('🗺️ 地図と都市リストを生成する'):
     else:
         with st.spinner('正確な天文計算に基づき、地図と都市リストを生成しています...'):
             try:
+                # --- 修正点: 診断機能を追加 ---
+                ephe_dir = './ephe'
+                with st.expander("ファイルチェック（デバッグ用）"):
+                    st.write(f"天体暦データフォルダ '{ephe_dir}' の状態を確認します...")
+                    if os.path.isdir(ephe_dir):
+                        st.success(f"✅ フォルダ '{ephe_dir}' が見つかりました。")
+                        files_in_dir = os.listdir(ephe_dir)
+                        if files_in_dir:
+                            st.write("フォルダ内のファイル:")
+                            st.code('\n'.join(files_in_dir))
+                            if 'seas_18.se1' in files_in_dir:
+                                st.success("✅ 主要な天体暦ファイルが見つかりました。")
+                            else:
+                                st.error("🚨 主要な天体暦ファイル ('seas_18.se1' など) が見つかりません。")
+                        else:
+                            st.error(f"🚨 フォルダ '{ephe_dir}' は空です。")
+                    else:
+                        st.error(f"🚨 フォルダ '{ephe_dir}' が見つかりません。GitHubリポジトリにフォルダを追加してアップロードしてください。")
+                # --- 診断機能ここまで ---
+
                 birth_dt_jst = datetime.datetime.combine(birth_date, birth_time)
                 
                 acg_lines = calculate_acg_lines_with_swisseph(birth_dt_jst, selected_planets)
