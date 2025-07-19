@@ -187,6 +187,27 @@ def plot_map_with_lines(acg_lines, selected_planets):
     )
     return fig
 
+# --- 新しい関数: データをマークダウン形式に変換 ---
+def format_data_as_markdown(cities_data):
+    """都市データを指定されたマークダウン形式の文字列に変換する"""
+    md_lines = ["# アストロカートグラフィで影響を受ける主要都市リスト"]
+    
+    # 惑星の順序を固定するために、PLANET_INFOのキーの順でループする
+    for planet in PLANET_INFO.keys():
+        if planet in cities_data:
+            planet_data = cities_data[planet]
+            # この惑星に一つでも都市があれば、惑星名を出力
+            if any(planet_data.values()):
+                md_lines.append(f"## {planet}")
+                for angle in ["AC", "DC", "IC", "MC"]:
+                    cities = planet_data.get(angle, [])
+                    if cities:
+                        md_lines.append(f"### {angle}")
+                        md_lines.append(", ".join(sorted(cities)))
+                        
+    return "\n\n".join(md_lines)
+
+
 # --- Streamlit アプリ本体 ---
 st.set_page_config(layout="wide")
 st.title('AstroCartography Map Generator 🗺️')
@@ -243,49 +264,39 @@ if st.button('🗺️ 地図と都市リストを生成する'):
                     fig = plot_map_with_lines(acg_lines, selected_planets)
                     st.plotly_chart(fig, use_container_width=True)
 
-                    # --- 修正点: 都市リストをHTMLテーブルで表示 ---
                     st.header("🌠 影響を受ける主要都市リスト（中心線から±5度の範囲）")
-                    
                     cities_data = find_cities_in_bands(acg_lines, selected_planets)
                     
-                    # any(cities.values())で辞書内のリストが空でないかチェック
                     if not any(any(cities.values()) for cities in cities_data.values()):
                          st.info("選択された影響線の近く（±5度）には、リストにある主要都市は含まれていませんでした。")
                     else:
+                        # --- 表形式での表示 ---
                         df = pd.DataFrame.from_dict(cities_data, orient='index')
                         df = df.reindex(columns=["AC", "DC", "IC", "MC"])
-                        
                         def join_cities_html(cities):
                             if isinstance(cities, list) and cities:
                                 return "<br>".join(sorted(cities))
                             return ""
-                        
                         df_html = df.applymap(join_cities_html)
-
                         html_table = df_html.to_html(escape=False, index=True, border=0, header=True)
-
-                        # スタイル定義とテーブルHTMLを別々のst.markdownで呼び出す
-                        st.markdown("""
-                        <style>
-                            table.dataframe {
-                                width: 100% !important;
-                                border-collapse: collapse;
-                            }
-                            table.dataframe th, table.dataframe td {
-                                border: 1px solid #e1e1e1;
-                                padding: 8px;
-                                text-align: left;
-                                vertical-align: top;
-                                white-space: normal; /* セル内での改行を有効にする */
-                                word-wrap: break-word; /* 長い単語でも改行する */
-                            }
-                            table.dataframe th {
-                                background-color: #f2f2f2;
-                            }
-                        </style>
-                        """, unsafe_allow_html=True)
-                        
+                        st.markdown("""<style>
+                            table.dataframe { width: 100% !important; border-collapse: collapse; }
+                            table.dataframe th, table.dataframe td { border: 1px solid #e1e1e1; padding: 8px; text-align: left; vertical-align: top; white-space: normal; word-wrap: break-word; }
+                            table.dataframe th { background-color: #f2f2f2; }
+                        </style>""", unsafe_allow_html=True)
                         st.markdown(html_table, unsafe_allow_html=True)
+
+                        # --- 修正点: マークダウン形式での表示とコピー欄の設置 ---
+                        st.divider() #区切り線
+                        st.subheader("📋 マークダウン形式でコピー")
+                        
+                        markdown_text = format_data_as_markdown(cities_data)
+                        
+                        st.text_area(
+                            "以下のテキストをコピーして、メモ帳やドキュメントに貼り付けてください。",
+                            markdown_text,
+                            height=300
+                        )
 
             except Exception as e:
                 st.error(f"エラーが発生しました: {e}")
