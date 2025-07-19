@@ -15,7 +15,7 @@ ZODIAC_OFFSETS = {
     "山羊座": 270, "CAPRICORN": 270, "水瓶座": 300, "AQUARIUS": 300, "魚座": 330, "PISCES": 330,
 }
 
-# 惑星の英語名と描画色
+# 惑星の英語名と描画色のマッピング (ASCとMCを削除)
 PLANET_INFO = {
     "太陽": {"en": "Sun", "color": "#FFD700"},
     "月": {"en": "Moon", "color": "#C0C0C0"},
@@ -64,15 +64,19 @@ WORLD_CITIES = {
     'モントリオール': (45.5017, -73.5673), 'マチュピチュ': (-13.1631, -72.5450), 'イースター島': (-27.1127, -109.3497)
 }
 
-# --- 計算関数 (変更なし) ---
+
+# --- 計算関数 ---
+
 def parse_natal_data(text_data):
     planet_data = {}
     lines = text_data.split('\n')
     pattern = re.compile(r"(\S+)\s*:\s*(\S+座)\s*([\d\.]+)\s*度")
+    
     for line in lines:
         match = pattern.search(line)
         if match:
             planet_name_jp = match.group(1).strip()
+            # PLANET_INFOに存在する惑星とMCのみを解析対象とする
             if planet_name_jp in PLANET_INFO or planet_name_jp == "MC":
                 planet_data[planet_name_jp] = {"sign": match.group(2).strip(), "degree": float(match.group(3))}
     return planet_data
@@ -83,13 +87,17 @@ def zodiac_to_longitude(sign, degree):
 def ecliptic_to_equatorial(ecl_lon_deg, obliquity_deg=23.439281):
     ecl_lon_rad = np.radians(ecl_lon_deg)
     obliquity_rad = np.radians(obliquity_deg)
+    
     sin_dec = np.sin(ecl_lon_rad) * np.sin(obliquity_rad)
     dec_rad = np.arcsin(sin_dec)
+    
     cos_ra = np.cos(ecl_lon_rad) / np.cos(dec_rad)
     sin_ra = (np.sin(ecl_lon_rad) * np.cos(obliquity_rad)) / np.cos(dec_rad)
     ra_rad = np.arctan2(sin_ra, cos_ra)
+    
     if ra_rad < 0:
         ra_rad += 2 * np.pi
+        
     return np.degrees(ra_rad), np.degrees(dec_rad)
 
 def calculate_acg_lines(planet_coords, lst_deg):
@@ -122,32 +130,42 @@ def calculate_acg_lines(planet_coords, lst_deg):
         lines[planet]["DC"] = {"lons": dc_lons, "lats": valid_lats}
     return lines
 
+# --- 新しい関数: 影響下の都市を判定 ---
 def find_cities_in_bands(acg_lines, selected_planets):
     cities_in_influence = defaultdict(list)
-    BAND_WIDTH = 5.0 # 都市リストの判定には引き続き5度の幅を使用
+    BAND_WIDTH = 5.0 # 中心線から左右5度
+    
     for city_name, (city_lat, city_lon) in WORLD_CITIES.items():
         for planet in selected_planets:
             if planet not in acg_lines: continue
+            
             lines = acg_lines[planet]
             planet_en = PLANET_INFO[planet]["en"]
+
+            # MC/ICラインのチェック
             for angle in ["MC", "IC"]:
                 center_lon = lines[angle]["lon"]
                 lon_diff = abs(city_lon - center_lon)
                 if min(lon_diff, 360 - lon_diff) <= BAND_WIDTH:
                     cities_in_influence[f"{planet_en}-{angle}"].append(city_name)
+
+            # AC/DCラインのチェック
             for angle in ["AC", "DC"]:
                 line_data = lines[angle]
-                if not line_data["lats"]: continue
+                # データが空でないことを確認
+                if not line_data or not line_data.get("lats"): continue
+                
+                # 都市の緯度に対応する中心経度を線形補間で推定
                 center_lon_at_city_lat = np.interp(city_lat, line_data["lats"], line_data["lons"])
                 lon_diff = abs(city_lon - center_lon_at_city_lat)
                 if min(lon_diff, 360 - lon_diff) <= BAND_WIDTH:
                     cities_in_influence[f"{planet_en}-{angle}"].append(city_name)
+                    
     return cities_in_influence
 
-# --- ここからが新しい描画関数（線画バージョン） ---
+# --- 描画関数 (元の線画バージョンに戻す) ---
 
 def plot_map_with_lines(acg_lines, selected_planets):
-    """Plotlyで線を描画する。日付変更線をまたぐ不具合を回避する。"""
     fig = go.Figure()
     
     fig.add_trace(go.Scattergeo(lon=[], lat=[], mode='lines', line=dict(width=1, color='gray'), showlegend=False))
@@ -162,17 +180,21 @@ def plot_map_with_lines(acg_lines, selected_planets):
             line_data = acg_lines[planet_jp][angle]
             
             if angle in ["MC", "IC"]:
-                lons = [line_data["lon"], line_data["lon"]]
+                lons = [line_data.get("lon"), line_data.get("lon")]
                 lats = [-85, 85]
             else: # AC, DC
-                if not line_data["lats"]: continue
+                if not line_data.get("lons"): continue
                 lons = np.array(line_data["lons"])
                 lats = np.array(line_data["lats"])
             
-            # 日付変更線をまたぐ箇所にNoneを挿入して線を分割
-            jumps = np.where(np.abs(np.diff(lons)) > 180)[0]
-            processed_lons = np.insert(lons, jumps + 1, None)
-            processed_lats = np.insert(lats, jumps + 1, None)
+            # 日付変更線をまたぐ箇所で線を分割
+            if len(lons) > 1:
+                jumps = np.where(np.abs(np.diff(lons)) > 180)[0]
+                processed_lons = np.insert(lons, jumps + 1, None)
+                processed_lats = np.insert(lats, jumps + 1, None)
+            else:
+                processed_lons = lons
+                processed_lats = lats
 
             fig.add_trace(go.Scattergeo(
                 lon=processed_lons, lat=processed_lats,
@@ -194,9 +216,8 @@ def plot_map_with_lines(acg_lines, selected_planets):
     )
     return fig
 
-# --- ここまでが新しい描画関数 ---
-
 # --- Streamlit アプリ本体 ---
+
 st.set_page_config(layout="wide")
 st.title('AstroCartography Map Generator 🗺️')
 
@@ -219,6 +240,7 @@ st.header("1. ネイタルデータを入力")
 user_input = st.text_area("鑑定対象者のネイタルデータを以下に貼り付けてください。", sample_data, height=300)
 
 st.header("2. 描画する天体を選択")
+# 修正点: 天体選択リストをPLANET_INFOから直接生成
 available_planets = list(PLANET_INFO.keys())
 default_selections = ["太陽", "月", "金星", "木星"]
 selected_planets = st.multiselect(
@@ -234,8 +256,9 @@ if st.button('🗺️ 地図と都市リストを生成する'):
         with st.spinner('データを解析し、地図と都市リストを生成しています...'):
             try:
                 parsed_data = parse_natal_data(user_input)
+                
                 if "MC" not in parsed_data:
-                    st.error("エラー: データからMC（天頂）が見つかりませんでした。")
+                    st.error("エラー: データからMC（天頂）が見つかりませんでした。計算の基準となるため必須です。")
                 else:
                     mc_lon = zodiac_to_longitude(parsed_data["MC"]["sign"], parsed_data["MC"]["degree"])
                     lst_deg, _ = ecliptic_to_equatorial(mc_lon)
@@ -243,16 +266,18 @@ if st.button('🗺️ 地図と都市リストを生成する'):
                     planet_coords = {}
                     for planet, data in parsed_data.items():
                         if planet == "MC": continue
-                        ecl_lon = zodiac_to_longitude(data["sign"], data["degree"])
-                        ra, dec = ecliptic_to_equatorial(ecl_lon)
-                        planet_coords[planet] = {"ra": ra, "dec": dec}
+                        if planet in PLANET_INFO: # 選択可能な惑星のみ座標計算
+                            ecl_lon = zodiac_to_longitude(data["sign"], data["degree"])
+                            ra, dec = ecliptic_to_equatorial(ecl_lon)
+                            planet_coords[planet] = {"ra": ra, "dec": dec}
 
                     acg_lines = calculate_acg_lines(planet_coords, lst_deg)
                     
-                    # 変更点：線画用の描画関数を呼び出す
+                    # 線画用の描画関数を呼び出す
                     fig = plot_map_with_lines(acg_lines, selected_planets)
                     st.plotly_chart(fig, use_container_width=True)
 
+                    # 影響を受ける都市リストを表示
                     st.header("🌠 影響を受ける主要都市リスト（中心線から±5度の範囲）")
                     cities_in_bands = find_cities_in_bands(acg_lines, selected_planets)
                     
@@ -265,4 +290,4 @@ if st.button('🗺️ 地図と都市リストを生成する'):
 
             except Exception as e:
                 st.error(f"エラーが発生しました: {e}")
-                st.error("入力データの形式が正しいか、もう一度確認してください。")
+                st.error("入力データの形式が正しいか確認してください。")
