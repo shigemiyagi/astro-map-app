@@ -17,16 +17,16 @@ ZODIAC_OFFSETS = {
 
 # 惑星の英語名と描画色
 PLANET_INFO = {
-    "太陽": {"en": "Sun", "color": "255, 215, 0"},   # Gold
-    "月": {"en": "Moon", "color": "192, 192, 192"}, # Silver
-    "水星": {"en": "Mercury", "color": "139, 69, 19"},   # SaddleBrown
-    "金星": {"en": "Venus", "color": "255, 105, 180"},# HotPink
-    "火星": {"en": "Mars", "color": "255, 69, 0"},    # OrangeRed
-    "木星": {"en": "Jupiter", "color": "50, 205, 50"},    # LimeGreen
-    "土星": {"en": "Saturn", "color": "70, 130, 180"},  # SteelBlue
-    "天王星": {"en": "Uranus", "color": "0, 255, 255"},    # Aqua
-    "海王星": {"en": "Neptune", "color": "0, 0, 255"},      # Blue
-    "冥王星": {"en": "Pluto", "color": "128, 0, 128"},    # Purple
+    "太陽": {"en": "Sun", "color": "#FFD700"},
+    "月": {"en": "Moon", "color": "#C0C0C0"},
+    "水星": {"en": "Mercury", "color": "#8B4513"},
+    "金星": {"en": "Venus", "color": "#FF69B4"},
+    "火星": {"en": "Mars", "color": "#FF4500"},
+    "木星": {"en": "Jupiter", "color": "#32CD32"},
+    "土星": {"en": "Saturn", "color": "#4682B4"},
+    "天王星": {"en": "Uranus", "color": "#00FFFF"},
+    "海王星": {"en": "Neptune", "color": "#0000FF"},
+    "冥王星": {"en": "Pluto", "color": "#800080"},
 }
 
 # 世界の有名都市リスト（緯度経度）
@@ -124,7 +124,7 @@ def calculate_acg_lines(planet_coords, lst_deg):
 
 def find_cities_in_bands(acg_lines, selected_planets):
     cities_in_influence = defaultdict(list)
-    BAND_WIDTH = 5.0
+    BAND_WIDTH = 5.0 # 都市リストの判定には引き続き5度の幅を使用
     for city_name, (city_lat, city_lon) in WORLD_CITIES.items():
         for planet in selected_planets:
             if planet not in acg_lines: continue
@@ -144,16 +144,11 @@ def find_cities_in_bands(acg_lines, selected_planets):
                     cities_in_influence[f"{planet_en}-{angle}"].append(city_name)
     return cities_in_influence
 
-# --- ここからが再修正された描画関数 ---
+# --- ここからが新しい描画関数（線画バージョン） ---
 
-def plot_map_with_bands(acg_lines, selected_planets):
-    """
-    Plotlyで帯（バンド）を描画する。
-    日付変更線（経度180度）をまたぐ描画の不具合を避けるため、
-    帯を分割するか、データにNoneを挿入して描画する。
-    """
+def plot_map_with_lines(acg_lines, selected_planets):
+    """Plotlyで線を描画する。日付変更線をまたぐ不具合を回避する。"""
     fig = go.Figure()
-    BAND_WIDTH = 5.0
     
     fig.add_trace(go.Scattergeo(lon=[], lat=[], mode='lines', line=dict(width=1, color='gray'), showlegend=False))
 
@@ -161,89 +156,47 @@ def plot_map_with_bands(acg_lines, selected_planets):
         if planet_jp not in acg_lines: continue
         
         planet_en = PLANET_INFO[planet_jp]["en"]
-        color_rgb = PLANET_INFO[planet_jp]["color"]
-        
-        fig.add_trace(go.Scattergeo(
-            lon=[None], lat=[None], mode='lines',
-            line=dict(color=f"rgb({color_rgb})", width=5),
-            name=f'{planet_en} Lines'
-        ))
+        color = PLANET_INFO[planet_jp]["color"]
         
         for angle in ["MC", "IC", "AC", "DC"]:
             line_data = acg_lines[planet_jp][angle]
-            fill_color = f"rgba({color_rgb}, 0.2)"
             
             if angle in ["MC", "IC"]:
-                center_lon = line_data["lon"]
-                lon1 = center_lon - BAND_WIDTH
-                lon2 = center_lon + BAND_WIDTH
-                
-                # 帯が日付変更線をまたぐ場合の分割描画
-                if lon1 < -180 or lon2 > 180:
-                    # 経度を-180から180の範囲に正規化
-                    w_lon1 = (lon1 + 180) % 360 - 180
-                    w_lon2 = (lon2 + 180) % 360 - 180
-                    
-                    # 2つのポリゴンに分割
-                    fig.add_trace(go.Scattergeo(
-                        lon=[w_lon1, 180, 180, w_lon1], lat=[-85, -85, 85, 85],
-                        fill="toself", fillcolor=fill_color, line_width=0,
-                        hoverinfo='none', showlegend=False
-                    ))
-                    fig.add_trace(go.Scattergeo(
-                        lon=[-180, w_lon2, w_lon2, -180], lat=[-85, -85, 85, 85],
-                        fill="toself", fillcolor=fill_color, line_width=0,
-                        hoverinfo='none', showlegend=False
-                    ))
-                else:
-                    # 1つのポリゴンとして描画
-                    fig.add_trace(go.Scattergeo(
-                        lon=[lon1, lon2, lon2, lon1], lat=[-85, -85, 85, 85],
-                        fill="toself", fillcolor=fill_color, line_width=0,
-                        hoverinfo='none', showlegend=False
-                    ))
-            
-            else: # AC, DC (曲線)
+                lons = [line_data["lon"], line_data["lon"]]
+                lats = [-85, 85]
+            else: # AC, DC
                 if not line_data["lats"]: continue
-                lons_center = np.array(line_data["lons"])
-                lats_center = np.array(line_data["lats"])
-                
-                lons_minus_5 = lons_center - BAND_WIDTH
-                lons_plus_5 = lons_center + BAND_WIDTH
-                
-                # 閉じたポリゴンの座標を作成
-                full_lons = np.concatenate([lons_minus_5, lons_plus_5[::-1]])
-                full_lats = np.concatenate([lats_center, lats_center[::-1]])
-                
-                # 日付変更線をまたぐ箇所（経度の差が180を超える点）にNoneを挿入
-                jumps = np.where(np.abs(np.diff(full_lons)) > 180)[0]
-                processed_lons = np.insert(full_lons, jumps + 1, None)
-                processed_lats = np.insert(full_lats, jumps + 1, None)
-                
-                fig.add_trace(go.Scattergeo(
-                    lon=processed_lons, lat=processed_lats, fill="toself",
-                    fillcolor=fill_color, line_width=0,
-                    hoverinfo='none', showlegend=False
-                ))
+                lons = np.array(line_data["lons"])
+                lats = np.array(line_data["lats"])
+            
+            # 日付変更線をまたぐ箇所にNoneを挿入して線を分割
+            jumps = np.where(np.abs(np.diff(lons)) > 180)[0]
+            processed_lons = np.insert(lons, jumps + 1, None)
+            processed_lats = np.insert(lats, jumps + 1, None)
+
+            fig.add_trace(go.Scattergeo(
+                lon=processed_lons, lat=processed_lats,
+                mode='lines',
+                line=dict(width=2, color=color),
+                name=f'{planet_en}-{angle}',
+                hoverinfo='name'
+            ))
 
     fig.update_layout(
-        title_text='アストロカートグラフィーマップ（影響帯バージョン）',
+        title_text='アストロカートグラフィーマップ',
         showlegend=True,
-        legend=dict(traceorder='normal'),
         geo=dict(
             projection_type='natural earth', showland=True, landcolor='rgb(243, 243, 243)',
             showocean=True, oceancolor='rgb(217, 237, 247)',
             showcountries=True, countrycolor='rgb(204, 204, 204)',
-            showlakes=True, lakecolor='rgb(217, 237, 247)',
         ),
         margin={"r":0,"t":40,"l":0,"b":0}, height=600
     )
     return fig
 
-# --- ここまでが再修正された描画関数 ---
+# --- ここまでが新しい描画関数 ---
 
-
-# --- Streamlit アプリ本体 (変更なし) ---
+# --- Streamlit アプリ本体 ---
 st.set_page_config(layout="wide")
 st.title('AstroCartography Map Generator 🗺️')
 
@@ -274,7 +227,7 @@ selected_planets = st.multiselect(
     default=default_selections
 )
 
-if st.button('🗺️ 影響帯の地図を描画する'):
+if st.button('🗺️ 地図と都市リストを生成する'):
     if not user_input or not selected_planets:
         st.error("データ入力と天体選択の両方が必要です。")
     else:
@@ -296,17 +249,18 @@ if st.button('🗺️ 影響帯の地図を描画する'):
 
                     acg_lines = calculate_acg_lines(planet_coords, lst_deg)
                     
-                    fig = plot_map_with_bands(acg_lines, selected_planets)
+                    # 変更点：線画用の描画関数を呼び出す
+                    fig = plot_map_with_lines(acg_lines, selected_planets)
                     st.plotly_chart(fig, use_container_width=True)
 
-                    st.header("🌠 影響を受ける主要都市リスト")
+                    st.header("🌠 影響を受ける主要都市リスト（中心線から±5度の範囲）")
                     cities_in_bands = find_cities_in_bands(acg_lines, selected_planets)
                     
                     if not cities_in_bands:
-                        st.info("選択された影響帯の中には、リストにある主要都市は含まれていませんでした。")
+                        st.info("選択された影響線の近く（±5度）には、リストにある主要都市は含まれていませんでした。")
                     else:
                         for line_name, cities in sorted(cities_in_bands.items()):
-                            st.subheader(f"📍 {line_name} 帯")
+                            st.subheader(f"📍 {line_name} ライン")
                             st.write(", ".join(sorted(cities)))
 
             except Exception as e:
