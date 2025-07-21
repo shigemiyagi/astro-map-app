@@ -8,7 +8,7 @@ from collections import defaultdict
 import traceback
 
 # --- 初期設定 ---
-APP_VERSION = "8.2 (日付入力修正版)"
+APP_VERSION = "8.1 (計算ロジック改善版)"
 swe.set_ephe_path('ephe')
 
 # --- 定数定義 ---
@@ -298,12 +298,12 @@ elif mode == "2人用":
     col1, col2 = st.columns(2)
     with col1:
         st.subheader("Aさんの情報")
-        a_birth_date = st.date_input("① 生年月日", min_value=datetime.date(1940, 1, 1), max_value=datetime.date.today(), key="a_date", value=datetime.date(1990, 1, 1))
+        a_birth_date = st.date_input("① 生年月日", key="a_date", value=datetime.date(1990, 1, 1))
         a_custom_time_str = st.text_input("② 出生時刻 (例: 16:27)", "12:00", key="a_time")
         a_pref = st.selectbox("③ 出生地", options=list(PREFECTURES.keys()), index=12, key="a_pref")
     with col2:
         st.subheader("Bさんの情報")
-        b_birth_date = st.date_input("① 生年月日", min_value=datetime.date(1940, 1, 1), max_value=datetime.date.today(), key="b_date", value=datetime.date(1992, 5, 10))
+        b_birth_date = st.date_input("① 生年月日", key="b_date", value=datetime.date(1992, 5, 10))
         b_custom_time_str = st.text_input("② 出生時刻 (例: 16:27)", "12:00", key="b_time")
         b_pref = st.selectbox("③ 出生地", options=list(PREFECTURES.keys()), index=26, key="b_pref")
 
@@ -335,8 +335,8 @@ elif mode == "2人用":
                         st.header("🌟 お二人の結婚運が最高潮に達する時期 TOP15", divider="rainbow")
                         for event in couple_events[:15]:
                             month_dt = datetime.datetime.strptime(event["month"], "%Y-%m")
-                            age_a = month_dt.year - a_birth_date.year - ((month_dt.month, 1) < (a_birth_date.month, a_birth_date.day))
-                            age_b = month_dt.year - b_birth_date.year - ((month_dt.month, 1) < (b_birth_date.month, b_birth_date.day))
+                            age_a = month_dt.year - a_birth_date.year - ((month_dt.month, month_dt.day) < (a_birth_date.month, a_birth_date.day))
+                            age_b = month_dt.year - b_birth_date.year - ((month_dt.month, month_dt.day) < (b_birth_date.month, b_birth_date.day))
                             st.subheader(f"{month_dt.strftime('%Y年%m月')}頃 (Aさん: {age_a}歳 / Bさん: {age_b}歳)")
                             st.markdown(f"**総合重要度: {event['normalized_score']:.0f}%**")
                             st.progress(int(event['normalized_score']))
