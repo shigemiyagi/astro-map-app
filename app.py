@@ -234,7 +234,7 @@ def format_data_as_markdown(cities_data):
     return "\n\n".join(final_blocks)
 
 # --- Streamlit アプリ本体 ---
-st.set_page_config(layout="wide")
+st.set_page_config(page_title="アストロカートグラフィー", page_icon="🗺️", layout="wide")
 st.title('AstroCartography Map Generator 🗺️')
 
 st.header("1. 鑑定対象者の情報を入力")
