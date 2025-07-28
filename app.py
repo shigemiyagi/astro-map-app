@@ -233,25 +233,29 @@ st.title("プロフェッショナル・アストロマップ 🗺️")
 with st.sidebar:
     st.header("⚙️ 設定")
     st.subheader("1. 鑑定対象者の情報")
-    birth_date = st.date_input("生年月日", datetime.date(2000, 1, 1), min_value=datetime.date(1930, 1, 1), max_value=datetime.date.today())
-    birth_time = st.time_input("出生時刻（24時間表記）", datetime.time(12, 0))
+    birth_date = st.date_input("生年月日", datetime.date(1976, 12, 25), min_value=datetime.date(1930, 1, 1), max_value=datetime.date.today())
+    birth_time = st.time_input("出生時刻（24時間表記）", datetime.time(16, 25))
     location_type = st.radio("出生地の指定方法", ["日本の都道府県", "世界の主要都市", "緯度経度を直接入力"], key="loc_type")
+    
     lat, lon, loc_name = None, None, None
+    jp_pref_list = list(JP_PREFECTURES.keys())
+    
     if location_type == "日本の都道府県":
-        loc_name = st.selectbox("出生地", list(JP_PREFECTURES.keys()), index=12)
+        default_pref_index = jp_pref_list.index("沖縄県") if "沖縄県" in jp_pref_list else 0
+        loc_name = st.selectbox("出生地", jp_pref_list, index=default_pref_index)
         lat, lon = JP_PREFECTURES[loc_name]
     elif location_type == "世界の主要都市":
         loc_name = st.selectbox("出生地", list(ALL_CITIES.keys()), index=list(ALL_CITIES.keys()).index("（海外）ニューヨーク"))
         lat, lon = ALL_CITIES[loc_name]
     else:
-        lat = st.number_input("緯度（北緯が正）", -90.0, 90.0, 35.68, format="%.4f")
-        lon = st.number_input("経度（東経が正）", -180.0, 180.0, 139.69, format="%.4f")
+        lat = st.number_input("緯度（北緯が正）", -90.0, 90.0, 26.2125, format="%.4f")
+        lon = st.number_input("経度（東経が正）", -180.0, 180.0, 127.6811, format="%.4f")
         loc_name = f"緯度:{lat}, 経度:{lon}"
+
     st.subheader("2. 表示設定")
     transit_date = st.date_input("未来予測（CCG）の日付", datetime.date.today())
     available_planets = list(PLANET_INFO.keys())
-    default_selections = ["太陽", "月", "金星", "木星"]
-    selected_planets = st.multiselect("描画する天体を選択", options=available_planets, default=default_selections)
+    selected_planets = st.multiselect("描画する天体を選択", options=available_planets, default=available_planets)
 
 if st.button('🗺️ すべてのマップと分析結果を生成する', use_container_width=True):
     if not all([birth_date, birth_time, lat is not None, lon is not None]):
