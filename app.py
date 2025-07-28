@@ -19,32 +19,32 @@ PLANET_INFO = {
 # 惑星とアングルの元型的意味（astrocartography_detail.pdfより引用）
 ARCHETYPE_INFO = {
     "太陽": {
-        [cite_start]"archetype": "英雄、王。意識の中心、エゴ、生命力、目的意識。[cite: 37]",
-        [cite_start]"AC": "自己が輝き、自信に満ち溢れ、強い第一印象を与える場所。リーダーシップと自己表現を促進する。[cite: 38]",
-        [cite_start]"DC": "自己の可能性を映し出すような、強力で輝かしいパートナーを引き寄せる。人間関係が自己発見の中心となる。[cite: 40]",
-        [cite_start]"MC": "キャリアでの成功、社会的名声、野心的な目標の達成に最適。リーダーとして注目される場所。[cite: 41]",
-        [cite_start]"IC": "家庭、家族、自身のルーツとの繋がりを通じて、活力と強い自己意識を見出す場所。[cite: 42]"
+        "archetype": "英雄、王。意識の中心、エゴ、生命力、目的意識。",
+        "AC": "自己が輝き、自信に満ち溢れ、強い第一印象を与える場所。リーダーシップと自己表現を促進する。",
+        "DC": "自己の可能性を映し出すような、強力で輝かしいパートナーを引き寄せる。人間関係が自己発見の中心となる。",
+        "MC": "キャリアでの成功、社会的名声、野心的な目標の達成に最適。リーダーとして注目される場所。",
+        "IC": "家庭、家族、自身のルーツとの繋がりを通じて、活力と強い自己意識を見出す場所。"
     },
     "月": {
-        [cite_start]"archetype": "母、女王。感情、直感、安心感、大衆、過去。[cite: 44]",
-        [cite_start]"AC": "感受性や直感が高まる。他者からは育成力があり、共感的であると見られる場所。[cite: 45]",
-        [cite_start]"DC": "育成的な、あるいは感情的なカルマを持つパートナーを引き寄せる。人間関係において深い感情的な安心感を求める。[cite: 46]",
-        [cite_start]"MC": "育成的な分野(癒し、食、不動産など)でのキャリア。高い知名度や人気を得るが、公の場での感情的な不安定さも伴う。[cite: 47]",
-        [cite_start]"IC": "究極の「故郷」のライン。深い帰属意識、祖先との繋がり、感情的な安心感を得られる場所。[cite: 48]"
+        "archetype": "母、女王。感情、直感、安心感、大衆、過去。",
+        "AC": "感受性や直感が高まる。他者からは育成力があり、共感的であると見られる場所。",
+        "DC": "育成的な、あるいは感情的なカルマを持つパートナーを引き寄せる。人間関係において深い感情的な安心感を求める。",
+        "MC": "育成的な分野(癒し、食、不動産など)でのキャリア。高い知名度や人気を得るが、公の場での感情的な不安定さも伴う。",
+        "IC": "究極の「故郷」のライン。深い帰属意識、祖先との繋がり、感情的な安心感を得られる場所。"
     },
     "金星": {
-        [cite_start]"archetype": "恋人、芸術家。愛、美、社交性、金銭、価値観。[cite: 56]",
-        [cite_start]"AC": "個人的な魅力や求心力が高まる。美しく、芸術的で、社交的に優雅な人物として見られる場所。[cite: 57]",
-        [cite_start]"DC": "古典的な「ソウルメイト」または「ハネムーン」のライン。ロマンチックで調和のとれたパートナーを引き寄せる。[cite: 58]",
-        [cite_start]"MC": "芸術、デザイン、外交、金融などの分野での成功。人気があり、好感度の高いパブリックイメージ。[cite: 59]",
-        [cite_start]"IC": "美しく、調和のとれた快適な家庭を築く。私生活において強い平和と満足感を得られる場所。[cite: 60]"
+        "archetype": "恋人、芸術家。愛、美、社交性、金銭、価値観。",
+        "AC": "個人的な魅力や求心力が高まる。美しく、芸術的で、社交的に優雅な人物として見られる場所。",
+        "DC": "古典的な「ソウルメイト」または「ハネムーン」のライン。ロマンチックで調和のとれたパートナーを引き寄せる。",
+        "MC": "芸術、デザイン、外交、金融などの分野での成功。人気があり、好感度の高いパブリックイメージ。",
+        "IC": "美しく、調和のとれた快適な家庭を築く。私生活において強い平和と満足感を得られる場所。"
     },
     "木星": {
-        [cite_start]"archetype": "賢者、王。拡大、幸運、成長、知恵、楽観主義。[cite: 69]",
-        [cite_start]"AC": "楽観主義、自信、幸運が増大する。寛大でスケールの大きなペルソナ。[cite: 70]",
-        [cite_start]"DC": "恩恵をもたらす、賢明な、あるいは外国人のパートナーを引き寄せる。成長と機会が人間関係を通じて訪れる。[cite: 71]",
-        [cite_start]"MC": "キャリアの成功、名声、豊かさを得るための最高のライン。職業的な昇進と拡大の機会に恵まれる。[cite: 72]",
-        [cite_start]"IC": "広く幸福な家庭。精神的な信念と内面の成長が深まる。不動産や家族に関連して幸運がもたらされる。[cite: 73]"
+        "archetype": "賢者、王。拡大、幸運、成長、知恵、楽観主義。",
+        "AC": "楽観主義、自信、幸運が増大する。寛大でスケールの大きなペルソナ。",
+        "DC": "恩恵をもたらす、賢明な、あるいは外国人のパートナーを引き寄せる。成長と機会が人間関係を通じて訪れる。",
+        "MC": "キャリアの成功、名声、豊かさを得るための最高のライン。職業的な昇進と拡大の機会に恵まれる。",
+        "IC": "広く幸福な家庭。精神的な信念と内面の成長が深まる。不動産や家族に関連して幸運がもたらされる。"
     },
     # 他の惑星も同様に定義可能
 }
@@ -187,9 +187,9 @@ def plot_map(lines_data, map_type, selected_planets):
 
 def format_full_report(birth_info, acg_cities, ccg_cities, transit_date, selected_planets):
     report_lines = ["# アストロマップ総合鑑定レポート", "---", "## 鑑定対象者の情報"]
-    report_lines.append(f"- **生年月日**: {birth_info['date']}")
-    report_lines.append(f"- **出生時刻**: {birth_info['time']}")
-    report_lines.append(f"- **出生地**: {birth_info['loc_name']} (緯度: {birth_info['lat']:.4f}, 経度: {birth_info['lon']:.4f})")
+    report_lines.append(f"- 生年月日: {birth_info['date']}")
+    report_lines.append(f"- 出生時刻: {birth_info['time']}")
+    report_lines.append(f"- 出生地: {birth_info['loc_name']} (緯度: {birth_info['lat']:.4f}, 経度: {birth_info['lon']:.4f})")
     
     def format_city_list(cities_data, planets):
         lines = []
@@ -202,7 +202,7 @@ def format_full_report(birth_info, acg_cities, ccg_cities, transit_date, selecte
                     for angle in ["AC", "DC", "MC", "IC"]:
                         cities = cities_data[planet].get(angle, [])
                         if cities:
-                            lines.append(f"- **{angle}**: " + ", ".join(sorted(cities)))
+                            lines.append(f"- {angle}: " + ", ".join(sorted(cities)))
         return lines
 
     report_lines.extend(["\n---\n", "## 1. アストロカートグラフィー (ACG) - 生涯を通じた影響", "影響を受ける主要都市リスト（中心線から±5度の範囲）"])
@@ -218,11 +218,11 @@ def format_full_report(birth_info, acg_cities, ccg_cities, transit_date, selecte
         if planet in ARCHETYPE_INFO:
             report_lines.append(f"\n### {planet}")
             info = ARCHETYPE_INFO[planet]
-            report_lines.append(f"- **元型**: {info['archetype']}")
-            report_lines.append(f"- **AC (自己表現)**: {info['AC']}")
-            report_lines.append(f"- **DC (人間関係)**: {info['DC']}")
-            report_lines.append(f"- **MC (キャリア)**: {info['MC']}")
-            report_lines.append(f"- **IC (家庭・基盤)**: {info['IC']}")
+            report_lines.append(f"- 元型: {info['archetype']}")
+            report_lines.append(f"- AC (自己表現): {info['AC']}")
+            report_lines.append(f"- DC (人間関係): {info['DC']}")
+            report_lines.append(f"- MC (キャリア): {info['MC']}")
+            report_lines.append(f"- IC (家庭・基盤): {info['IC']}")
             
     return "\n".join(report_lines)
 
@@ -275,7 +275,6 @@ if st.button('🗺️ すべてのマップと分析結果を生成する', use_
                 acg_fig = plot_map(acg_lines, "ACG", selected_planets)
                 st.plotly_chart(acg_fig, use_container_width=True)
                 acg_cities = find_cities_in_bands(acg_lines, selected_planets)
-                # (都市リストのテーブル表示はテキスト出力に集約)
 
                 # --- 2. CCG ---
                 st.header(f"2. サイクロカートグラフィー (CCG) - {transit_date} 時点での影響")
@@ -294,7 +293,7 @@ if st.button('🗺️ すべてのマップと分析結果を生成する', use_
                 st.header("4. 惑星とアングルの解説")
                 for planet in selected_planets:
                     if planet in ARCHETYPE_INFO:
-                        with st.expander(f"**{planet}** の意味と解釈"):
+                        with st.expander(f"{planet} の意味と解釈"):
                             info = ARCHETYPE_INFO[planet]
                             st.markdown(f"**元型**: {info['archetype']}")
                             st.markdown(f"**AC (自己表現)**: {info['AC']}")
