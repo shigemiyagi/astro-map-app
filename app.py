@@ -186,7 +186,7 @@ def plot_map(lines_data, map_type, selected_planets):
     return fig
 
 def format_full_report(birth_info, acg_cities, ccg_cities, transit_date, selected_planets):
-    report_lines = ["# アストロマップ総合鑑定レポート", "---", "## 鑑定対象者の情報"]
+    report_lines = ["# アストロカートグラフィー総合鑑定レポート", "---", "## 鑑定対象者の情報"]
     report_lines.append(f"- 生年月日: {birth_info['date']}")
     report_lines.append(f"- 出生時刻: {birth_info['time']}")
     report_lines.append(f"- 出生地: {birth_info['loc_name']} (緯度: {birth_info['lat']:.4f}, 経度: {birth_info['lon']:.4f})")
