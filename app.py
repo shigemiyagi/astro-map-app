@@ -2,21 +2,10 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
-import re
-from collections import defaultdict
 import datetime
-import os
 from skyfield.api import load, Topos
 
 # --- 定数とデータ ---
-
-# 星座の開始度数（黄経）
-ZODIAC_OFFSETS = {
-    "牡羊座": 0, "ARIES": 0, "牡牛座": 30, "TAURUS": 30, "双子座": 60, "GEMINI": 60,
-    "蟹座": 90, "CANCER": 90, "獅子座": 120, "LEO": 120, "乙女座": 150, "VIRGO": 150,
-    "天秤座": 180, "LIBRA": 180, "蠍座": 210, "SCORPIO": 210, "射手座": 240, "SAGITTARIUS": 240,
-    "山羊座": 270, "CAPRICORN": 270, "水瓶座": 300, "AQUARIUS": 300, "魚座": 330, "PISCES": 330,
-}
 
 # 惑星の英語名、描画色
 PLANET_INFO = {
@@ -26,6 +15,40 @@ PLANET_INFO = {
     "土星": {"en": "Saturn", "color": "#4682B4"}, "天王星": {"en": "Uranus", "color": "#00FFFF"},
     "海王星": {"en": "Neptune", "color": "#0000FF"}, "冥王星": {"en": "Pluto", "color": "#800080"},
 }
+
+# 惑星とアングルの元型的意味（astrocartography_detail.pdfより引用）
+ARCHETYPE_INFO = {
+    "太陽": {
+        "archetype": "英雄、王。意識の中心、エゴ、生命力、目的意識。[cite: 37]",
+        "AC": "自己が輝き、自信に満ち溢れ、強い第一印象を与える場所。リーダーシップと自己表現を促進する。[cite: 38, 39]",
+        "DC": "自己の可能性を映し出すような、強力で輝かしいパートナーを引き寄せる。人間関係が自己発見の中心となる。[cite: 40]",
+        "MC": "キャリアでの成功、社会的名声、野心的な目標の達成に最適。リーダーとして注目される場所。[cite: 41]",
+        "IC": "家庭、家族、自身のルーツとの繋がりを通じて、活力と強い自己意識を見出す場所。[cite: 42]"
+    },
+    "月": {
+        "archetype": "母、女王。感情、直感、安心感、大衆、過去。[cite: 44]",
+        "AC": "感受性や直感が高まる。他者からは育成力があり、共感的であると見られる場所。[cite: 45]",
+        "DC": "育成的な、あるいは感情的なカルマを持つパートナーを引き寄せる。人間関係において深い感情的な安心感を求める。[cite: 46]",
+        "MC": "育成的な分野(癒し、食、不動産など)でのキャリア。高い知名度や人気を得るが、公の場での感情的な不安定さも伴う。[cite: 47]",
+        "IC": "究極の「故郷」のライン。深い帰属意識、祖先との繋がり、感情的な安心感を得られる場所。[cite: 48]"
+    },
+    "金星": {
+        "archetype": "恋人、芸術家。愛、美、社交性、金銭、価値観。[cite: 56]",
+        "AC": "個人的な魅力や求心力が高まる。美しく、芸術的で、社交的に優雅な人物として見られる場所。[cite: 57]",
+        "DC": "古典的な「ソウルメイト」または「ハネムーン」のライン。ロマンチックで調和のとれたパートナーを引き寄せる。[cite: 58]",
+        "MC": "芸術、デザイン、外交、金融などの分野での成功。人気があり、好感度の高いパブリックイメージ。[cite: 59]",
+        "IC": "美しく、調和のとれた快適な家庭を築く。私生活において強い平和と満足感を得られる場所。[cite: 60]"
+    },
+    "木星": {
+        "archetype": "賢者、王。拡大、幸運、成長、知恵、楽観主義。[cite: 69]",
+        "AC": "楽観主義、自信、幸運が増大する。寛大でスケールの大きなペルソナ。[cite: 70]",
+        "DC": "恩恵をもたらす、賢明な、あるいは外国人のパートナーを引き寄せる。成長と機会が人間関係を通じて訪れる。[cite: 71]",
+        "MC": "キャリアの成功、名声、豊かさを得るための最高のライン。職業的な昇進と拡大の機会に恵まれる。[cite: 72]",
+        "IC": "広く幸福な家庭。精神的な信念と内面の成長が深まる。不動産や家族に関連して幸運がもたらされる。[cite: 73]"
+    },
+    # 他の惑星も同様に定義可能
+}
+
 
 # 都道府県のリストと県庁所在地の緯度経度
 JP_PREFECTURES = {
@@ -55,41 +78,23 @@ WORLD_CITIES = {
     'ローマ': (41.9028, 12.4964), 'カイロ': (30.0444, 31.2357), 'モスクワ': (55.7558, 37.6173),
     'バンコク': (13.7563, 100.5018), 'ソウル': (37.5665, 126.9780), 'イスタンブール': (41.0082, 28.9784),
     'シカゴ': (41.8781, -87.6298), 'ベルリン': (52.5200, 13.4050), 'マドリード': (40.4168, -3.7038),
-    'トロント': (43.6532, -79.3832), 'ブエノスアイレス': (-34.6037, -58.3816), 'サンパウロ': (-23.5505, -46.6333),
-    'メキシコシティ': (19.4326, -99.1332), 'リオデジャネイロ': (-22.9068, -43.1729), 'ムンバイ': (19.0760, 72.8777),
-    'デリー': (28.7041, 77.1025), '上海': (31.2304, 121.4737), '北京': (39.9042, 116.4074),
-    'ヨハネスブルグ': (-26.2041, 28.0473), 'アムステルダム': (52.3676, 4.9041), 'ウィーン': (48.2082, 16.3738),
-    'チューリッヒ': (47.3769, 8.5417), 'バンクーバー': (49.2827, -123.1207), 'サンフランシスコ': (37.7749, -122.4194),
-    'ワシントンD.C.': (38.9072, -77.0369), 'ホノルル': (21.3069, -157.8583), 'アテネ': (37.9838, 23.7275),
-    'ダブリン': (53.3498, -6.2603), 'プラハ': (50.0755, 14.4378), 'コペンハーゲン': (55.6761, 12.5683),
-    'ストックホルム': (59.3293, 18.0686), 'オスロ': (59.9139, 10.7522), 'ヘルシンキ': (60.1699, 24.9384),
-    'リスボン': (38.7223, -9.1393), 'ブリュッセル': (50.8503, 4.3517), 'ワルシャワ': (52.2297, 21.0122),
-    'ブダペスト': (47.4979, 19.0402), 'キーウ': (50.4501, 30.5234), 'サンクトペテルブルク': (59.9343, 30.3351),
-    '台北': (25.0330, 121.5654), 'クアラルンプール': (3.1390, 101.6869), 'マニラ': (14.5995, 120.9842),
-    'ジャカルタ': (-6.2088, 106.8456), 'ハノイ': (21.0285, 105.8542), 'ホーチミン': (10.7769, 106.7009),
-    'リヤド': (24.7136, 46.6753), 'アンカラ': (39.9334, 32.8597), 'エルサレム': (31.7683, 35.2137),
-    'テヘラン': (35.6892, 51.3890), 'バグダッド': (33.3152, 44.3661), 'ナイロビ': (-1.2921, 36.8219),
-    'ラゴス': (6.5244, 3.3792), 'サンティアゴ': (-33.4489, -70.6693), 'リマ': (-12.0464, -77.0428),
-    'ボゴタ': (4.7110, -74.0721), 'カラカス': (10.4806, -66.9036), 'キングストン': (17.9712, -76.7930),
-    'ハバナ': (23.1136, -82.3666), 'オタワ': (45.4215, -75.6972), 'キャンベラ': (-35.2809, 149.1300),
-    'ウェリントン': (-41.2865, 174.7762), 'レイキャビク': (64.1466, -21.9426), 'モンテビデオ': (-34.9011, -56.1645),
-    'アスンシオン': (-25.2637, -57.5759), 'キト': (-0.1807, -78.4678), 'パナマシティ': (8.9824, -79.5199),
-    '福岡': (33.5904, 130.4017), '札幌': (43.0618, 141.3545), '那覇': (26.2124, 127.6792),
-    '釜山': (35.1796, 129.0756), 'グアム': (13.4443, 144.7937), 'オークランド': (-36.8485, 174.7633),
-    'メルボルン': (-37.8136, 144.9631), 'パース': (-31.9505, 115.8605), 'デンパサール': (-8.6705, 115.2126),
-    'アンカレッジ': (61.2181, -149.9003), 'シアトル': (47.6062, -122.3321),
-    'デンバー': (39.7392, -104.9903), 'ヒューストン': (29.7604, -95.3698), 'マイアミ': (25.7617, -80.1918),
-    'モントリオール': (45.5017, -73.5673), 'マチュピチュ': (-13.1631, -72.5450), 'イースター島': (-27.1127, -109.3497)
+    'ホノルル': (21.3069, -157.8583), 'サンフランシスコ': (37.7749, -122.4194)
+    # 必要に応じて都市を追加
 }
+ALL_CITIES = {**{f"（日本）{k}": v for k, v in JP_PREFECTURES.items()}, **{f"（海外）{k}": v for k, v in WORLD_CITIES.items()}}
 
-# --- 修正点: @st.cache_data -> @st.cache_resource ---
+
+# --- キャッシュ ---
 @st.cache_resource
 def load_ephemeris():
     """天体暦データをロードする（リソースとしてキャッシュ）"""
     return load('de421.bsp')
 
+
 # --- 計算ロジック ---
-def calculate_acg_lines(birth_dt_jst, selected_planets):
+
+def calculate_acg_lines(calculation_dt_utc, selected_planets):
+    """アストロカートグラフィー(ACG)のラインを計算する"""
     eph = load_ephemeris()
     earth = eph['earth']
     
@@ -101,7 +106,7 @@ def calculate_acg_lines(birth_dt_jst, selected_planets):
     }
 
     ts = load.timescale()
-    t = ts.from_datetime(birth_dt_jst.replace(tzinfo=datetime.timezone(datetime.timedelta(hours=9))))
+    t = ts.from_datetime(calculation_dt_utc)
     
     gst_rad = t.gmst * (np.pi / 12)
 
@@ -109,6 +114,7 @@ def calculate_acg_lines(birth_dt_jst, selected_planets):
     latitudes = np.linspace(-85, 85, 150)
     
     for planet_name in selected_planets:
+        if planet_name not in planet_map: continue
         planet_obj = planet_map[planet_name]
         
         astrometric = earth.at(t).observe(planet_obj)
@@ -117,11 +123,13 @@ def calculate_acg_lines(birth_dt_jst, selected_planets):
         ra_rad = ra.radians
         dec_rad = dec.radians
 
+        # MC/IC (経度線)
         lon_mc = np.degrees(ra_rad - gst_rad)
         lon_mc = (lon_mc + 180) % 360 - 180
         lon_ic = (lon_mc + 180 + 180) % 360 - 180
         lines[planet_name] = {"MC": {"lon": lon_mc}, "IC": {"lon": lon_ic}}
 
+        # AC/DC (曲線)
         ac_lons, dc_lons = [], []
         ac_lats, dc_lats = [], []
         
@@ -147,9 +155,56 @@ def calculate_acg_lines(birth_dt_jst, selected_planets):
         
     return lines
 
-# --- 変更なし (以降の関数) ---
+
+def calculate_local_space_lines(birth_dt_utc, center_location, selected_planets):
+    """ローカルスペースのライン（方位線）を計算する"""
+    eph = load_ephemeris()
+    earth = eph['earth']
+    
+    planet_map = {
+        "太陽": eph['sun'], "月": eph['moon'], "水星": eph['mercury'],
+        "金星": eph['venus'], "火星": eph['mars'], "木星": eph['jupiter barycenter'],
+        "土星": eph['saturn barycenter'], "天王星": eph['uranus barycenter'],
+        "海王星": eph['neptune barycenter'], "冥王星": eph['pluto barycenter'],
+    }
+
+    ts = load.timescale()
+    t = ts.from_datetime(birth_dt_utc)
+
+    lines = {}
+    for planet_name in selected_planets:
+        if planet_name not in planet_map: continue
+        planet_obj = planet_map[planet_name]
+
+        # 出生地から見た惑星の方位を計算
+        observer = earth + center_location
+        astrometric = observer.at(t).observe(planet_obj).apparent()
+        alt, az, d = astrometric.altaz()
+        
+        # 大圏航路の計算
+        start_lat, start_lon = center_location.latitude.degrees, center_location.longitude.degrees
+        azimuth_rad = az.radians
+        
+        lons, lats = [start_lon], [start_lat]
+        # 地球を半周するまでの点をプロット
+        for dist_km in np.linspace(100, 20000, 100):
+            # 簡易的な球面三角法による計算
+            dist_rad = dist_km / 6371 # 地球の半径
+            lat_rad = np.arcsin(np.sin(np.radians(start_lat)) * np.cos(dist_rad) +
+                                np.cos(np.radians(start_lat)) * np.sin(dist_rad) * np.cos(azimuth_rad))
+            lon_rad = np.radians(start_lon) + np.arctan2(np.sin(azimuth_rad) * np.sin(dist_rad) * np.cos(np.radians(start_lat)),
+                                                         np.cos(dist_rad) - np.sin(np.radians(start_lat)) * np.sin(lat_rad))
+            
+            lats.append(np.degrees(lat_rad))
+            lons.append(np.degrees(lon_rad))
+        
+        lines[planet_name] = {"lons": lons, "lats": lats}
+        
+    return lines
+
 
 def find_cities_in_bands(acg_lines, selected_planets):
+    """影響範囲内（±5度）の都市を探す"""
     cities_by_planet_angle = {
         planet: {angle: [] for angle in ["AC", "DC", "IC", "MC"]}
         for planet in selected_planets
@@ -168,144 +223,214 @@ def find_cities_in_bands(acg_lines, selected_planets):
                     cities_by_planet_angle[planet][angle].append(city_name)
             for angle in ["AC", "DC"]:
                 line_data = lines.get(angle)
-                if not line_data or not line_data.get("lats"): continue
-                center_lon_at_city_lat = np.interp(city_lat, line_data["lats"], line_data["lons"])
-                lon_diff = abs(city_lon - center_lon_at_city_lat)
-                if min(lon_diff, 360 - lon_diff) <= BAND_WIDTH:
-                    cities_by_planet_angle[planet][angle].append(city_name)
+                if not line_data or not line_data.get("lats") or not line_data.get("lons"): continue
+                # 緯度が最も近い点の経度で比較
+                try:
+                    center_lon_at_city_lat = np.interp(city_lat, line_data["lats"], line_data["lons"])
+                    lon_diff = abs(city_lon - center_lon_at_city_lat)
+                    if min(lon_diff, 360 - lon_diff) <= BAND_WIDTH:
+                        cities_by_planet_angle[planet][angle].append(city_name)
+                except:
+                    continue # 計算エラーはスキップ
     return cities_by_planet_angle
 
-def plot_map_with_lines(acg_lines, selected_planets):
+# --- 描画ロジック ---
+
+def plot_map(lines_data, map_type, selected_planets):
+    """地図とラインを描画する"""
     fig = go.Figure()
     fig.add_trace(go.Scattergeo(lon=[], lat=[], mode='lines', line=dict(width=1, color='gray'), showlegend=False))
+    
     for planet_jp in selected_planets:
-        if planet_jp not in acg_lines: continue
+        if planet_jp not in lines_data: continue
+        
         planet_en = PLANET_INFO[planet_jp]["en"]
         color = PLANET_INFO[planet_jp]["color"]
-        for angle in ["MC", "IC", "AC", "DC"]:
-            line_data = acg_lines.get(planet_jp, {}).get(angle)
+
+        if map_type in ["ACG", "CCG"]:
+            for angle in ["MC", "IC", "AC", "DC"]:
+                line_data = lines_data.get(planet_jp, {}).get(angle)
+                if not line_data: continue
+                if angle in ["MC", "IC"]:
+                    lon_val = line_data.get("lon")
+                    if lon_val is None: continue
+                    lons = np.array([lon_val, lon_val], dtype=float)
+                    lats = np.array([-85, 85], dtype=float)
+                else: # AC, DC
+                    lons = np.array(line_data.get("lons", []), dtype=float)
+                    lats = np.array(line_data.get("lats", []), dtype=float)
+
+                if len(lons) > 1:
+                    jumps = np.where(np.abs(np.diff(lons)) > 180)[0]
+                    processed_lons = np.insert(lons, jumps + 1, np.nan)
+                    processed_lats = np.insert(lats, jumps + 1, np.nan)
+                else:
+                    processed_lons = lons
+                    processed_lats = lats
+                    
+                fig.add_trace(go.Scattergeo(
+                    lon=processed_lons, lat=processed_lats, mode='lines',
+                    line=dict(width=2, color=color), name=f'{planet_en}-{angle}',
+                    hoverinfo='name', connectgaps=False
+                ))
+
+        elif map_type == "Local Space":
+            line_data = lines_data.get(planet_jp)
             if not line_data: continue
-            if angle in ["MC", "IC"]:
-                lon_val = line_data.get("lon")
-                if lon_val is None: continue
-                lons = np.array([lon_val, lon_val], dtype=float)
-                lats = np.array([-85, 85], dtype=float)
-            else:
-                lons_list = line_data.get("lons")
-                if not lons_list: continue
-                lons = np.array(lons_list, dtype=float)
-                lats = np.array(line_data.get("lats", []), dtype=float)
-            if len(lons) > 1:
-                jumps = np.where(np.abs(np.diff(lons)) > 180)[0]
-                processed_lons = np.insert(lons, jumps + 1, np.nan)
-                processed_lats = np.insert(lats, jumps + 1, np.nan)
-            else:
-                processed_lons = lons
-                processed_lats = lats
+            lons = np.array(line_data.get("lons", []), dtype=float)
+            lats = np.array(line_data.get("lats", []), dtype=float)
+            
+            # 180度線をまたぐプロットの補正
+            jumps = np.where(np.abs(np.diff(lons)) > 180)[0]
+            processed_lons = np.insert(lons, jumps + 1, np.nan)
+            processed_lats = np.insert(lats, jumps + 1, np.nan)
+            
             fig.add_trace(go.Scattergeo(
                 lon=processed_lons, lat=processed_lats, mode='lines',
-                line=dict(width=2, color=color), name=f'{planet_en}-{angle}',
+                line=dict(width=2, color=color), name=f'{planet_en} Line',
                 hoverinfo='name', connectgaps=False
             ))
+
+    map_title = {
+        "ACG": "アストロカートグラフィー (AstroCartoGraphy)",
+        "CCG": "サイクロカートグラフィー (CycloCartoGraphy)",
+        "Local Space": "ローカルスペース占星術 (Local Space Astrology)"
+    }.get(map_type, "アストロマップ")
+
     fig.update_layout(
-        title_text='アストロカートグラフィーマップ', showlegend=True,
+        title_text=map_title, showlegend=True,
         geo=dict(
             projection_type='natural earth', showland=True, landcolor='rgb(243, 243, 243)',
             showocean=True, oceancolor='rgb(217, 237, 247)',
             showcountries=True, countrycolor='rgb(204, 204, 204)',
         ),
-        margin={"r":0,"t":40,"l":0,"b":0}, height=600
+        margin={"r":0,"t":40,"l":0,"b":0}, height=700
     )
     return fig
 
-def format_data_as_markdown(cities_data):
-    final_blocks = ["# アストロカートグラフィーで影響を受ける主要都市リスト"]
-    for planet in PLANET_INFO.keys():
-        if planet in cities_data:
-            planet_data = cities_data[planet]
-            if any(planet_data.values()):
-                planet_section = [f"## {planet}"]
-                for angle in ["AC", "DC", "IC", "MC"]:
-                    cities = planet_data.get(angle, [])
-                    if cities:
-                        planet_section.append(f"### {angle}")
-                        planet_section.append(", ".join(sorted(cities)))
-                final_blocks.append("\n".join(planet_section))
-    return "\n\n".join(final_blocks)
-
 # --- Streamlit アプリ本体 ---
-st.set_page_config(page_title="アストロカートグラフィー", page_icon="🗺️", layout="wide")
-st.title('AstroCartography Map Generator 🗺️')
 
-st.header("1. 鑑定対象者の情報を入力")
+st.set_page_config(page_title="プロフェッショナル・アストロマップ", page_icon="🗺️", layout="wide")
+st.title("プロフェッショナル・アストロマップ 🗺️")
 
-col1, col2, col3 = st.columns(3)
-with col1:
+# --- サイドバー ---
+with st.sidebar:
+    st.header("⚙️ 設定")
+
+    st.subheader("1. 鑑定対象者の情報")
     birth_date = st.date_input(
         "生年月日", datetime.date(2000, 1, 1),
         min_value=datetime.date(1930, 1, 1),
         max_value=datetime.date.today()
     )
-with col2:
-    birth_time = st.time_input("出生時刻", datetime.time(12, 0))
-with col3:
-    pref_name = st.selectbox("出生地（都道府県）", list(JP_PREFECTURES.keys()), index=12)
-
-st.header("2. 描画する天体を選択")
-available_planets = list(PLANET_INFO.keys())
-default_selections = ["太陽", "月", "金星", "木星"]
-selected_planets = st.multiselect(
-    "地図に表示したい天体を選択してください。",
-    options=available_planets,
-    default=default_selections
-)
-
-if st.button('🗺️ 地図と都市リストを生成する'):
-    if not all([birth_date, birth_time, pref_name]):
-        st.error("すべての鑑定情報を入力してください。")
+    birth_time = st.time_input("出生時刻（24時間表記）", datetime.time(12, 0))
+    
+    location_type = st.radio("出生地の指定方法", ["日本の都道府県", "世界の主要都市", "緯度経度を直接入力"], key="loc_type")
+    
+    lat, lon = None, None
+    if location_type == "日本の都道府県":
+        pref_name = st.selectbox("出生地", list(JP_PREFECTURES.keys()), index=12)
+        lat, lon = JP_PREFECTURES[pref_name]
+    elif location_type == "世界の主要都市":
+        city_name = st.selectbox("出生地", list(ALL_CITIES.keys()), index=list(ALL_CITIES.keys()).index("（海外）ニューヨーク"))
+        lat, lon = ALL_CITIES[city_name]
     else:
-        with st.spinner('正確な天文計算に基づき、地図と都市リストを生成しています...'):
+        lat = st.number_input("緯度（北緯が正）", -90.0, 90.0, 35.68, format="%.4f")
+        lon = st.number_input("経度（東経が正）", -180.0, 180.0, 139.69, format="%.4f")
+
+    st.subheader("2. マップと表示設定")
+    map_type = st.selectbox(
+        "作成するマップの種類",
+        ["アストロカートグラフィー (ACG)", "サイクロカートグラフィー (CCG)", "ローカルスペース占星術 (Local Space)"],
+        help="**ACG**: 出生時の影響を見る基本の地図。[cite: 5] **CCG**: 未来の惑星配置（トランジット）の影響を見る地図。 **Local Space**: 出生地からの方位の吉凶を見る地図。"
+    )
+
+    transit_date = None
+    if map_type == "サイクロカートグラフィー (CCG)":
+        transit_date = st.date_input("占いたい未来の日付", datetime.date.today())
+
+    available_planets = list(PLANET_INFO.keys())
+    default_selections = ["太陽", "月", "金星", "木星"]
+    selected_planets = st.multiselect(
+        "描画する天体を選択",
+        options=available_planets,
+        default=default_selections
+    )
+
+# --- メイン画面 ---
+if st.button('🗺️ 地図と分析を生成する', use_container_width=True):
+    if not all([birth_date, birth_time, lat is not None, lon is not None]):
+        st.error("すべての鑑定情報を正しく入力してください。")
+    elif not selected_planets:
+        st.error("描画する天体を1つ以上選択してください。")
+    else:
+        with st.spinner('専門的な天文計算に基づき、地図と分析を生成しています...'):
             try:
-                birth_dt_jst = datetime.datetime.combine(birth_date, birth_time)
+                # タイムゾーンを考慮してUTCに変換
+                birth_dt_local = datetime.datetime.combine(birth_date, birth_time)
+                # 経度からタイムゾーンを簡易的に推定
+                tz_offset_hours = lon / 15.0
+                tz_info = datetime.timezone(datetime.timedelta(hours=tz_offset_hours))
+                birth_dt_utc = birth_dt_local.replace(tzinfo=tz_info).astimezone(datetime.timezone.utc)
                 
-                acg_lines = calculate_acg_lines(birth_dt_jst, selected_planets)
-                
-                if not acg_lines:
-                    st.warning("計算結果が空でした。エラーメッセージを確認するか、別の入力でお試しください。")
-                else:
-                    fig = plot_map_with_lines(acg_lines, selected_planets)
-                    st.plotly_chart(fig, use_container_width=True)
+                lines_data = {}
+                center_location = Topos(latitude_degrees=lat, longitude_degrees=lon)
 
-                    st.header("🌠 影響を受ける主要都市リスト（中心線から±5度の範囲）")
-                    cities_data = find_cities_in_bands(acg_lines, selected_planets)
+                if map_type in ["アストロカートグラフィー (ACG)", "サイクロカートグラフィー (CCG)"]:
+                    calc_dt = birth_dt_utc
+                    if map_type == "サイクロカートグラフィー (CCG)":
+                         # CCGの場合、時刻は正午(UTC)とする
+                        calc_dt_local = datetime.datetime.combine(transit_date, datetime.time(12,0))
+                        calc_dt = calc_dt_local.replace(tzinfo=datetime.timezone.utc)
                     
-                    if not any(any(cities.values()) for cities in cities_data.values()):
-                         st.info("選択された影響線の近く（±5度）には、リストにある主要都市は含まれていませんでした。")
-                    else:
-                        df = pd.DataFrame.from_dict(cities_data, orient='index')
-                        df = df.reindex(columns=["AC", "DC", "IC", "MC"])
-                        def join_cities_html(cities):
-                            if isinstance(cities, list) and cities:
-                                return "<br>".join(sorted(cities))
-                            return ""
-                        df_html = df.applymap(join_cities_html)
-                        html_table = df_html.to_html(escape=False, index=True, border=0, header=True)
-                        st.markdown("""<style>
-                            table.dataframe { width: 100% !important; border-collapse: collapse; }
-                            table.dataframe th, table.dataframe td { border: 1px solid #e1e1e1; padding: 8px; text-align: left; vertical-align: top; white-space: normal; word-wrap: break-word; }
-                            table.dataframe th { background-color: #f2f2f2; }
-                        </style>""", unsafe_allow_html=True)
-                        st.markdown(html_table, unsafe_allow_html=True)
+                    lines_data = calculate_acg_lines(calc_dt, selected_planets)
+                
+                elif map_type == "ローカルスペース占星術 (Local Space)":
+                    lines_data = calculate_local_space_lines(birth_dt_utc, center_location, selected_planets)
 
-                        st.divider()
-                        st.subheader("📋 マークダウン形式でコピー")
-                        markdown_text = format_data_as_markdown(cities_data)
-                        st.text_area(
-                            "以下のテキストをコピーして、メモ帳やドキュメントに貼り付けてください。",
-                            markdown_text,
-                            height=300
-                        )
+                if not lines_data:
+                    st.warning("計算結果が空でした。入力内容を確認してください。")
+                else:
+                    fig = plot_map(lines_data, map_type.split(" ")[0], selected_planets)
+                    st.plotly_chart(fig, use_container_width=True)
+                    
+                    st.header("🌠 惑星ラインの解説")
+                    st.info("PDF資料に基づき、選択された惑星とアングルが持つ元型的な意味を解説します。[cite: 33]")
+                    for planet in selected_planets:
+                        if planet in ARCHETYPE_INFO:
+                            with st.expander(f"**{planet}** の意味と解釈"):
+                                st.markdown(f"**元型**: {ARCHETYPE_INFO[planet]['archetype']}")
+                                if map_type.startswith("アストロ") or map_type.startswith("サイクロ"):
+                                    st.markdown(f"**AC (自己表現)**: {ARCHETYPE_INFO[planet]['AC']}")
+                                    st.markdown(f"**DC (人間関係)**: {ARCHETYPE_INFO[planet]['DC']}")
+                                    st.markdown(f"**MC (キャリア)**: {ARCHETYPE_INFO[planet]['MC']}")
+                                    st.markdown(f"**IC (家庭・基盤)**: {ARCHETYPE_INFO[planet]['IC']}")
+                                else:
+                                    st.markdown("ローカルスペース・ラインは、この惑星のエネルギーが向かう方位を示します。その方向に旅行したり、家のその方角を活性化させたりすることで、惑星のテーマが生活にもたらされます。[cite: 117]")
+
+
+                    if map_type in ["アストロカートグラフィー (ACG)", "サイクロカートグラフィー (CCG)"]:
+                        st.header("🏙️ 影響を受ける主要都市リスト（中心線から±5度）")
+                        cities_data = find_cities_in_bands(lines_data, selected_planets)
+                        
+                        if not any(any(cities.values()) for cities in cities_data.values()):
+                             st.info("選択された影響線の近く（±5度）には、リストにある主要都市は含まれていませんでした。")
+                        else:
+                            df = pd.DataFrame.from_dict(cities_data, orient='index')
+                            df = df.reindex(columns=["AC", "DC", "IC", "MC"])
+                            def join_cities_html(cities):
+                                if isinstance(cities, list) and cities:
+                                    return "<br>".join(sorted(cities))
+                                return ""
+                            df_html = df.applymap(join_cities_html)
+                            html_table = df_html.to_html(escape=False, index=True, border=0, header=True)
+                            st.markdown("""<style>
+                                table.dataframe { width: 100% !important; border-collapse: collapse; }
+                                table.dataframe th, table.dataframe td { border: 1px solid #e1e1e1; padding: 8px; text-align: left; vertical-align: top; white-space: normal; word-wrap: break-word; }
+                                table.dataframe th { background-color: #f2f2f2; }
+                            </style>""", unsafe_allow_html=True)
+                            st.markdown(html_table, unsafe_allow_html=True)
 
             except Exception as e:
                 st.error(f"エラーが発生しました: {e}")
-                st.error("入力データの形式が正しいか、もう一度確認してください。")
+                st.error("入力データの形式が正しいか、もう一度確認してください。特に、夏時間などの考慮が必要な場合は、時刻を調整してください。")
